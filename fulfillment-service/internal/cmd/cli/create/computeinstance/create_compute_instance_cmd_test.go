@@ -16,6 +16,7 @@ package computeinstance
 import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/spf13/pflag"
 	"google.golang.org/protobuf/proto"
 
 	publicv1 "github.com/osac-project/osac/fulfillment-service/internal/api/osac/public/v1"
@@ -229,5 +230,48 @@ var _ = Describe("Create computeinstance flag validation", func() {
 		Expect(err.Error()).To(ContainSubstring("at least one of the flags"))
 		Expect(err.Error()).To(ContainSubstring("catalog-item"))
 		Expect(err.Error()).To(ContainSubstring("template"))
+	})
+})
+
+var _ = Describe("--additional-disk flag parsing", func() {
+	// rawDisks parses the given args on a fresh command and returns the
+	// --additional-disk values exactly as Cobra stored them. It reads through
+	// pflag's SliceValue interface, which both StringSlice and StringArray
+	// implement, so the assertions below can catch the difference in how those
+	// two types split (or preserve) the value during Parse().
+	rawDisks := func(args ...string) []string {
+		cmd := Cmd()
+		cmd.SetOut(GinkgoWriter)
+		cmd.SetErr(GinkgoWriter)
+		Expect(cmd.Flags().Parse(args)).To(Succeed())
+		val, ok := cmd.Flags().Lookup("additional-disk").Value.(pflag.SliceValue)
+		Expect(ok).To(BeTrue(), "additional-disk flag must expose a slice value")
+		return val.GetSlice()
+	}
+
+	It("should keep a single comma-joined key=value spec as one element", func() {
+		raw := rawDisks("--additional-disk", "size=50,storage-tier=e2e-x")
+		Expect(raw).To(Equal([]string{"size=50,storage-tier=e2e-x"}))
+
+		disks, err := parseAdditionalDisks(raw)
+		Expect(err).ToNot(HaveOccurred())
+		Expect(disks).To(HaveLen(1))
+		Expect(disks[0].GetSizeGib()).To(Equal(int32(50)))
+		Expect(disks[0].GetStorageTier()).To(Equal("e2e-x"))
+	})
+
+	It("should treat each flag occurrence as a distinct disk", func() {
+		raw := rawDisks(
+			"--additional-disk", "size=50,storage-tier=e2e-x",
+			"--additional-disk", "100",
+		)
+		Expect(raw).To(Equal([]string{"size=50,storage-tier=e2e-x", "100"}))
+
+		disks, err := parseAdditionalDisks(raw)
+		Expect(err).ToNot(HaveOccurred())
+		Expect(disks).To(HaveLen(2))
+		Expect(disks[0].GetSizeGib()).To(Equal(int32(50)))
+		Expect(disks[0].GetStorageTier()).To(Equal("e2e-x"))
+		Expect(disks[1].GetSizeGib()).To(Equal(int32(100)))
 	})
 })

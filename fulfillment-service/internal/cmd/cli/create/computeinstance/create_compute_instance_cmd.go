@@ -128,10 +128,10 @@ func Cmd() *cobra.Command {
 		"",
 		bootDiskStorageTierFlagHelp,
 	)
-	flags.StringSliceVar(
+	flags.StringArrayVar(
 		&runner.args.additionalDisks,
 		"additional-disk",
-		[]string{},
+		nil,
 		additionalDiskFlagHelp,
 	)
 	flags.StringVar(
