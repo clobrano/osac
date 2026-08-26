@@ -272,6 +272,122 @@ var _ = Describe("applyFieldDefinitions", func() {
 		Expect(status.Code(err)).To(Equal(codes.InvalidArgument))
 		Expect(err.Error()).To(ContainSubstring("validation failed"))
 	})
+
+	It("skips default for editable repeated field when user provides empty array", func() {
+		spec := &privatev1.ComputeInstanceSpec{
+			AdditionalDisks: []*privatev1.ComputeInstanceDisk{},
+		}
+		defaultVal, err := structpb.NewValue([]interface{}{
+			map[string]interface{}{"size_gib": float64(100)},
+		})
+		Expect(err).ToNot(HaveOccurred())
+		fieldDefs := []*privatev1.FieldDefinition{{
+			Path:     "additional_disks",
+			Editable: true,
+			Default:  defaultVal,
+		}}
+		err = applyFieldDefinitions(spec, fieldDefs)
+		Expect(err).ToNot(HaveOccurred())
+		Expect(spec.GetAdditionalDisks()).To(BeEmpty())
+	})
+
+	It("skips default for editable repeated field when user omits the field", func() {
+		spec := &privatev1.ComputeInstanceSpec{}
+		defaultVal, err := structpb.NewValue([]interface{}{
+			map[string]interface{}{"size_gib": float64(100)},
+		})
+		Expect(err).ToNot(HaveOccurred())
+		fieldDefs := []*privatev1.FieldDefinition{{
+			Path:     "additional_disks",
+			Editable: true,
+			Default:  defaultVal,
+		}}
+		err = applyFieldDefinitions(spec, fieldDefs)
+		Expect(err).ToNot(HaveOccurred())
+		Expect(spec.GetAdditionalDisks()).To(BeEmpty())
+	})
+
+	It("preserves user-provided repeated field values", func() {
+		spec := &privatev1.ComputeInstanceSpec{
+			AdditionalDisks: []*privatev1.ComputeInstanceDisk{
+				{SizeGib: 200},
+			},
+		}
+		defaultVal, err := structpb.NewValue([]interface{}{
+			map[string]interface{}{"size_gib": float64(100)},
+		})
+		Expect(err).ToNot(HaveOccurred())
+		fieldDefs := []*privatev1.FieldDefinition{{
+			Path:     "additional_disks",
+			Editable: true,
+			Default:  defaultVal,
+		}}
+		err = applyFieldDefinitions(spec, fieldDefs)
+		Expect(err).ToNot(HaveOccurred())
+		Expect(spec.GetAdditionalDisks()).To(HaveLen(1))
+		Expect(spec.GetAdditionalDisks()[0].GetSizeGib()).To(Equal(int32(200)))
+	})
+
+	It("applies default for non-editable repeated field", func() {
+		spec := &privatev1.ComputeInstanceSpec{}
+		defaultVal, err := structpb.NewValue([]interface{}{
+			map[string]interface{}{"size_gib": float64(50)},
+		})
+		Expect(err).ToNot(HaveOccurred())
+		fieldDefs := []*privatev1.FieldDefinition{{
+			Path:     "additional_disks",
+			Editable: false,
+			Default:  defaultVal,
+		}}
+		err = applyFieldDefinitions(spec, fieldDefs)
+		Expect(err).ToNot(HaveOccurred())
+		Expect(spec.GetAdditionalDisks()).To(HaveLen(1))
+		Expect(spec.GetAdditionalDisks()[0].GetSizeGib()).To(Equal(int32(50)))
+	})
+
+	It("rejects editable repeated field with no default and no user value", func() {
+		spec := &privatev1.ComputeInstanceSpec{}
+		fieldDefs := []*privatev1.FieldDefinition{{
+			Path:     "additional_disks",
+			Editable: true,
+		}}
+		err := applyFieldDefinitions(spec, fieldDefs)
+		Expect(err).To(HaveOccurred())
+		Expect(status.Code(err)).To(Equal(codes.InvalidArgument))
+		Expect(err.Error()).To(ContainSubstring("additional_disks"))
+	})
+})
+
+var _ = Describe("isRepeatedProtoField", func() {
+	It("returns true for a repeated field", func() {
+		spec := &privatev1.ComputeInstanceSpec{}
+		Expect(isRepeatedProtoField(spec, "additional_disks")).To(BeTrue())
+	})
+
+	It("returns true for another repeated field", func() {
+		spec := &privatev1.ComputeInstanceSpec{}
+		Expect(isRepeatedProtoField(spec, "network_attachments")).To(BeTrue())
+	})
+
+	It("returns false for a scalar field", func() {
+		spec := &privatev1.ComputeInstanceSpec{}
+		Expect(isRepeatedProtoField(spec, "run_strategy")).To(BeFalse())
+	})
+
+	It("returns false for a message field", func() {
+		spec := &privatev1.ComputeInstanceSpec{}
+		Expect(isRepeatedProtoField(spec, "disk_image")).To(BeFalse())
+	})
+
+	It("returns false for a map field entry", func() {
+		spec := &privatev1.ClusterSpec{}
+		Expect(isRepeatedProtoField(spec, "template_parameters.vpc_id")).To(BeFalse())
+	})
+
+	It("returns false for an unknown field", func() {
+		spec := &privatev1.ComputeInstanceSpec{}
+		Expect(isRepeatedProtoField(spec, "nonexistent_field")).To(BeFalse())
+	})
 })
 
 var _ = Describe("validateFieldDefinitions", func() {

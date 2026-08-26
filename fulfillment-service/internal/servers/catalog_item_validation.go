@@ -28,6 +28,7 @@ import (
 	grpcstatus "google.golang.org/grpc/status"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/reflect/protoreflect"
 	"google.golang.org/protobuf/types/known/structpb"
 
 	privatev1 "github.com/osac-project/osac/fulfillment-service/internal/api/osac/private/v1"
@@ -152,6 +153,11 @@ func applyFieldDefinitions(
 						return err
 					}
 				}
+			} else if isRepeatedProtoField(spec, path) && defaultVal != nil {
+				// Proto3 repeated fields have no field presence: an explicit
+				// empty array is wire-identical to an absent field. Skip
+				// applying the default so that users can opt out by sending
+				// an empty array.
 			} else {
 				if defaultVal == nil {
 					return grpcstatus.Errorf(grpccodes.InvalidArgument,
@@ -319,6 +325,34 @@ func collectLeafPaths(m map[string]any, prefix string) []string {
 		}
 	}
 	return paths
+}
+
+// isRepeatedProtoField reports whether the dot-separated path resolves to a
+// repeated (non-map) field in the proto message descriptor. It navigates the
+// descriptor tree segment by segment; it returns false for map fields,
+// unknown paths, and any path that crosses a map boundary (e.g.
+// "template_parameters.some_key").
+func isRepeatedProtoField(msg proto.Message, path string) bool {
+	md := msg.ProtoReflect().Descriptor()
+	parts := strings.Split(path, ".")
+	for i, part := range parts {
+		fd := md.Fields().ByName(protoreflect.Name(part))
+		if fd == nil {
+			return false
+		}
+		if i == len(parts)-1 {
+			return fd.IsList()
+		}
+		if fd.IsMap() {
+			return false
+		}
+		if fd.Kind() == protoreflect.MessageKind {
+			md = fd.Message()
+		} else {
+			return false
+		}
+	}
+	return false
 }
 
 func isPathCovered(path string, allowedPaths map[string]bool) bool {
