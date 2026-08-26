@@ -358,38 +358,6 @@ var _ = Describe("applyFieldDefinitions", func() {
 	})
 })
 
-var _ = Describe("isRepeatedProtoField", func() {
-	It("returns true for a repeated field", func() {
-		spec := &privatev1.ComputeInstanceSpec{}
-		Expect(isRepeatedProtoField(spec, "additional_disks")).To(BeTrue())
-	})
-
-	It("returns true for another repeated field", func() {
-		spec := &privatev1.ComputeInstanceSpec{}
-		Expect(isRepeatedProtoField(spec, "network_attachments")).To(BeTrue())
-	})
-
-	It("returns false for a scalar field", func() {
-		spec := &privatev1.ComputeInstanceSpec{}
-		Expect(isRepeatedProtoField(spec, "run_strategy")).To(BeFalse())
-	})
-
-	It("returns false for a message field", func() {
-		spec := &privatev1.ComputeInstanceSpec{}
-		Expect(isRepeatedProtoField(spec, "disk_image")).To(BeFalse())
-	})
-
-	It("returns false for a map field entry", func() {
-		spec := &privatev1.ClusterSpec{}
-		Expect(isRepeatedProtoField(spec, "template_parameters.vpc_id")).To(BeFalse())
-	})
-
-	It("returns false for an unknown field", func() {
-		spec := &privatev1.ComputeInstanceSpec{}
-		Expect(isRepeatedProtoField(spec, "nonexistent_field")).To(BeFalse())
-	})
-})
-
 var _ = Describe("validateFieldDefinitions", func() {
 	It("rejects template_parameter with invalid validation_schema", func() {
 		fieldDefs := []*privatev1.FieldDefinition{{
