@@ -28,6 +28,7 @@ import (
 	grpcstatus "google.golang.org/grpc/status"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/fieldmaskpb"
 	"google.golang.org/protobuf/types/known/structpb"
 
 	privatev1 "github.com/osac-project/osac/fulfillment-service/internal/api/osac/private/v1"
@@ -85,9 +86,15 @@ func validateFieldDefinitions(fieldDefinitions []*privatev1.FieldDefinition) err
 // For non-editable fields: rejects user-provided values; applies the catalog item default.
 // For editable fields with user values: validates against the JSON Schema.
 // For editable fields without user values: applies the catalog item default.
+//
+// specFields is an optional FieldMask listing spec-level paths the caller explicitly set.
+// It is used to distinguish an explicit empty repeated field (e.g. additional_disks: []) from
+// an absent field, since proto3 repeated fields have no field presence. When specFields is
+// nil, repeated-field defaults are always applied (backward-compatible behavior).
 func applyFieldDefinitions(
 	spec proto.Message,
 	fieldDefinitions []*privatev1.FieldDefinition,
+	specFields *fieldmaskpb.FieldMask,
 ) error {
 	if len(fieldDefinitions) == 0 {
 		return nil
@@ -152,11 +159,14 @@ func applyFieldDefinitions(
 						return err
 					}
 				}
-			} else if defaultVal != nil && defaultVal.GetListValue() != nil {
+			} else if defaultVal != nil && defaultVal.GetListValue() != nil &&
+				specFields != nil && specFieldsContains(specFields, path) {
 				// Proto3 repeated fields have no field presence: an explicit
-				// empty array is wire-identical to an absent field. Skip
-				// applying the default so that users can opt out by sending
-				// an empty array.
+				// empty array is wire-identical to an absent field. The caller
+				// lists explicitly-set spec fields in specFields so we can
+				// distinguish the two cases. When the field is in specFields
+				// the caller explicitly set it (even if empty), so skip the
+				// default.
 			} else {
 				if defaultVal == nil {
 					return grpcstatus.Errorf(grpccodes.InvalidArgument,
@@ -332,6 +342,15 @@ func isPathCovered(path string, allowedPaths map[string]bool) bool {
 	}
 	for i := range path {
 		if path[i] == '.' && allowedPaths[path[:i]] {
+			return true
+		}
+	}
+	return false
+}
+
+func specFieldsContains(mask *fieldmaskpb.FieldMask, path string) bool {
+	for _, p := range mask.GetPaths() {
+		if p == path {
 			return true
 		}
 	}

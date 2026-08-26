@@ -28,6 +28,7 @@ import (
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
 	"google.golang.org/protobuf/types/known/anypb"
+	"google.golang.org/protobuf/types/known/fieldmaskpb"
 
 	privatev1 "github.com/osac-project/osac/fulfillment-service/internal/api/osac/private/v1"
 	"github.com/osac-project/osac/fulfillment-service/internal/auth"
@@ -218,7 +219,7 @@ func (s *PrivateBareMetalInstancesServer) Get(ctx context.Context,
 
 func (s *PrivateBareMetalInstancesServer) Create(ctx context.Context,
 	request *privatev1.BareMetalInstancesCreateRequest) (response *privatev1.BareMetalInstancesCreateResponse, err error) {
-	if err = s.validateAndApplyCatalogItem(ctx, request.GetObject()); err != nil {
+	if err = s.validateAndApplyCatalogItem(ctx, request.GetObject(), request.GetSpecFields()); err != nil {
 		return
 	}
 	if err = s.validateSpec(request.GetObject()); err != nil {
@@ -457,7 +458,7 @@ func (s *PrivateBareMetalInstancesServer) resolveDefaultInterface(
 // validateAndApplyCatalogItem verifies the referenced catalog item exists, is accessible,
 // and applies its field definitions to the spec.
 func (s *PrivateBareMetalInstancesServer) validateAndApplyCatalogItem(ctx context.Context,
-	bmi *privatev1.BareMetalInstance) error {
+	bmi *privatev1.BareMetalInstance, specFields *fieldmaskpb.FieldMask) error {
 	if bmi == nil {
 		return grpcstatus.Errorf(grpccodes.InvalidArgument, "bare metal instance is mandatory")
 	}
@@ -486,7 +487,7 @@ func (s *PrivateBareMetalInstancesServer) validateAndApplyCatalogItem(ctx contex
 		return err
 	}
 
-	if err := applyFieldDefinitions(bmi.GetSpec(), item.GetFieldDefinitions()); err != nil {
+	if err := applyFieldDefinitions(bmi.GetSpec(), item.GetFieldDefinitions(), specFields); err != nil {
 		return err
 	}
 

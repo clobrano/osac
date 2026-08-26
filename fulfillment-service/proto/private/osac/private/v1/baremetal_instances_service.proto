@@ -43,6 +43,12 @@ message BareMetalInstancesGetResponse {
 
 message BareMetalInstancesCreateRequest {
   BareMetalInstance object = 1;
+
+  // Fields of the spec that the caller explicitly set. Used to distinguish an
+  // explicit empty value from an absent field when applying CatalogItem defaults.
+  // Paths are relative to the spec message.
+  // Mirrors the update_mask pattern on update requests.
+  google.protobuf.FieldMask spec_fields = 2;
 }
 
 message BareMetalInstancesCreateResponse {

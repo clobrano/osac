@@ -305,7 +305,7 @@ func (s *PrivateClustersServer) Create(ctx context.Context,
 		return
 	}
 	if catalogItemRef != nil {
-		err = s.validateAndTransformCatalogItem(ctx, request.GetObject())
+		err = s.validateAndTransformCatalogItem(ctx, request.GetObject(), request.GetSpecFields())
 		if err != nil {
 			return
 		}
@@ -1468,7 +1468,7 @@ func mergeNodeSetsWithTemplate(
 	cluster.GetSpec().SetNodeSets(actualNodeSets)
 }
 
-func (s *PrivateClustersServer) validateAndTransformCatalogItem(ctx context.Context, cluster *privatev1.Cluster) error {
+func (s *PrivateClustersServer) validateAndTransformCatalogItem(ctx context.Context, cluster *privatev1.Cluster, specFields *fieldmaskpb.FieldMask) error {
 	if cluster == nil {
 		return grpcstatus.Errorf(grpccodes.InvalidArgument, "object is mandatory")
 	}
@@ -1493,7 +1493,7 @@ func (s *PrivateClustersServer) validateAndTransformCatalogItem(ctx context.Cont
 	}
 	cluster.GetSpec().SetTemplate(templateRef)
 
-	if err := applyFieldDefinitions(cluster.GetSpec(), catalogItem.GetFieldDefinitions()); err != nil {
+	if err := applyFieldDefinitions(cluster.GetSpec(), catalogItem.GetFieldDefinitions(), specFields); err != nil {
 		return err
 	}
 

@@ -20,6 +20,7 @@ import (
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/anypb"
+	"google.golang.org/protobuf/types/known/fieldmaskpb"
 	"google.golang.org/protobuf/types/known/structpb"
 	"google.golang.org/protobuf/types/known/wrapperspb"
 
@@ -33,7 +34,7 @@ var _ = Describe("applyFieldDefinitions", func() {
 			Path:     "pull_secret",
 			Editable: true,
 		}}
-		err := applyFieldDefinitions(spec, fieldDefs)
+		err := applyFieldDefinitions(spec, fieldDefs, nil)
 		Expect(err).To(HaveOccurred())
 		Expect(status.Code(err)).To(Equal(codes.InvalidArgument))
 		Expect(err.Error()).To(ContainSubstring("pull_secret"))
@@ -48,7 +49,7 @@ var _ = Describe("applyFieldDefinitions", func() {
 			Path:     "pull_secret",
 			Editable: true,
 		}}
-		err := applyFieldDefinitions(spec, fieldDefs)
+		err := applyFieldDefinitions(spec, fieldDefs, nil)
 		Expect(err).ToNot(HaveOccurred())
 		Expect(spec.GetPullSecret()).To(Equal("my-secret"))
 	})
@@ -62,7 +63,7 @@ var _ = Describe("applyFieldDefinitions", func() {
 			Editable: true,
 			Default:  defaultVal,
 		}}
-		err = applyFieldDefinitions(spec, fieldDefs)
+		err = applyFieldDefinitions(spec, fieldDefs, nil)
 		Expect(err).ToNot(HaveOccurred())
 		Expect(spec.GetPullSecret()).To(Equal("default-secret"))
 	})
@@ -79,7 +80,7 @@ var _ = Describe("applyFieldDefinitions", func() {
 			Editable: false,
 			Default:  defaultVal,
 		}}
-		err = applyFieldDefinitions(spec, fieldDefs)
+		err = applyFieldDefinitions(spec, fieldDefs, nil)
 		Expect(err).To(HaveOccurred())
 		Expect(status.Code(err)).To(Equal(codes.InvalidArgument))
 		Expect(err.Error()).To(ContainSubstring("not editable"))
@@ -94,7 +95,7 @@ var _ = Describe("applyFieldDefinitions", func() {
 			Editable: false,
 			Default:  defaultVal,
 		}}
-		err = applyFieldDefinitions(spec, fieldDefs)
+		err = applyFieldDefinitions(spec, fieldDefs, nil)
 		Expect(err).ToNot(HaveOccurred())
 		Expect(spec.GetPullSecret()).To(Equal("admin-value"))
 	})
@@ -110,7 +111,7 @@ var _ = Describe("applyFieldDefinitions", func() {
 			{Path: "ssh_public_key", Editable: true},
 			{Path: "version", Editable: false, Default: defaultVersion},
 		}
-		err = applyFieldDefinitions(spec, fieldDefs)
+		err = applyFieldDefinitions(spec, fieldDefs, nil)
 		Expect(err).ToNot(HaveOccurred())
 		Expect(spec.GetSshPublicKey()).To(Equal("ssh-ed25519 USER_KEY"))
 		Expect(spec.GetVersion().GetName()).To(Equal("4-17-0"))
@@ -121,7 +122,7 @@ var _ = Describe("applyFieldDefinitions", func() {
 		spec := &privatev1.ClusterSpec{
 			PullSecret: &pullSecret,
 		}
-		err := applyFieldDefinitions(spec, nil)
+		err := applyFieldDefinitions(spec, nil, nil)
 		Expect(err).ToNot(HaveOccurred())
 	})
 
@@ -147,7 +148,7 @@ var _ = Describe("applyFieldDefinitions", func() {
 				Editable: true,
 			},
 		}
-		err = applyFieldDefinitions(spec, fieldDefs)
+		err = applyFieldDefinitions(spec, fieldDefs, nil)
 		Expect(err).To(HaveOccurred())
 		Expect(status.Code(err)).To(Equal(codes.InvalidArgument))
 		Expect(err.Error()).To(ContainSubstring("pull_secret"))
@@ -162,7 +163,7 @@ var _ = Describe("applyFieldDefinitions", func() {
 			Editable: true,
 			Default:  defaultVal,
 		}}
-		err = applyFieldDefinitions(spec, fieldDefs)
+		err = applyFieldDefinitions(spec, fieldDefs, nil)
 		Expect(err).ToNot(HaveOccurred())
 		Expect(spec.GetDiskImage().GetName()).To(Equal("my-disk-image"))
 	})
@@ -176,7 +177,7 @@ var _ = Describe("applyFieldDefinitions", func() {
 			Editable: false,
 			Default:  defaultVal,
 		}}
-		err = applyFieldDefinitions(spec, fieldDefs)
+		err = applyFieldDefinitions(spec, fieldDefs, nil)
 		Expect(err).ToNot(HaveOccurred())
 		Expect(spec.GetDiskImage().GetName()).To(Equal("my-disk-image"))
 	})
@@ -196,7 +197,7 @@ var _ = Describe("applyFieldDefinitions", func() {
 			Editable: false,
 			Default:  defaultVal,
 		}}
-		err = applyFieldDefinitions(spec, fieldDefs)
+		err = applyFieldDefinitions(spec, fieldDefs, nil)
 		Expect(err).To(HaveOccurred())
 		Expect(status.Code(err)).To(Equal(codes.InvalidArgument))
 		Expect(err.Error()).To(ContainSubstring("not editable"))
@@ -212,7 +213,7 @@ var _ = Describe("applyFieldDefinitions", func() {
 				Editable: false,
 				Default:  defaultVal,
 			}}
-			err = applyFieldDefinitions(spec, fieldDefs)
+			err = applyFieldDefinitions(spec, fieldDefs, nil)
 			Expect(err).ToNot(HaveOccurred())
 			tp := spec.GetTemplateParameters()
 			Expect(tp).To(HaveKey("param"))
@@ -230,7 +231,7 @@ var _ = Describe("applyFieldDefinitions", func() {
 			Path:     "template_parameters.vpc_id",
 			Editable: true,
 		}}
-		err := applyFieldDefinitions(spec, fieldDefs)
+		err := applyFieldDefinitions(spec, fieldDefs, nil)
 		Expect(err).To(HaveOccurred())
 		Expect(status.Code(err)).To(Equal(codes.InvalidArgument))
 		Expect(err.Error()).To(ContainSubstring("template_parameters.vpc_id"))
@@ -249,7 +250,7 @@ var _ = Describe("applyFieldDefinitions", func() {
 			Editable:         true,
 			ValidationSchema: `{"type":"number","minimum":1,"maximum":4094}`,
 		}}
-		err = applyFieldDefinitions(spec, fieldDefs)
+		err = applyFieldDefinitions(spec, fieldDefs, nil)
 		Expect(err).ToNot(HaveOccurred())
 		Expect(spec.GetTemplateParameters()).To(HaveKey("vlan"))
 	})
@@ -267,13 +268,13 @@ var _ = Describe("applyFieldDefinitions", func() {
 			Editable:         true,
 			ValidationSchema: `{"type":"number","maximum":4094}`,
 		}}
-		err = applyFieldDefinitions(spec, fieldDefs)
+		err = applyFieldDefinitions(spec, fieldDefs, nil)
 		Expect(err).To(HaveOccurred())
 		Expect(status.Code(err)).To(Equal(codes.InvalidArgument))
 		Expect(err.Error()).To(ContainSubstring("validation failed"))
 	})
 
-	It("skips default for editable repeated field when user provides empty array", func() {
+	It("skips default for editable repeated field when spec_fields lists the path", func() {
 		spec := &privatev1.ComputeInstanceSpec{
 			AdditionalDisks: []*privatev1.ComputeInstanceDisk{},
 		}
@@ -286,12 +287,13 @@ var _ = Describe("applyFieldDefinitions", func() {
 			Editable: true,
 			Default:  defaultVal,
 		}}
-		err = applyFieldDefinitions(spec, fieldDefs)
+		mask := &fieldmaskpb.FieldMask{Paths: []string{"additional_disks"}}
+		err = applyFieldDefinitions(spec, fieldDefs, mask)
 		Expect(err).ToNot(HaveOccurred())
 		Expect(spec.GetAdditionalDisks()).To(BeEmpty())
 	})
 
-	It("skips default for editable repeated field when user omits the field", func() {
+	It("applies default for editable repeated field when spec_fields is nil", func() {
 		spec := &privatev1.ComputeInstanceSpec{}
 		defaultVal, err := structpb.NewValue([]interface{}{
 			map[string]interface{}{"size_gib": float64(100)},
@@ -302,9 +304,28 @@ var _ = Describe("applyFieldDefinitions", func() {
 			Editable: true,
 			Default:  defaultVal,
 		}}
-		err = applyFieldDefinitions(spec, fieldDefs)
+		err = applyFieldDefinitions(spec, fieldDefs, nil)
 		Expect(err).ToNot(HaveOccurred())
-		Expect(spec.GetAdditionalDisks()).To(BeEmpty())
+		Expect(spec.GetAdditionalDisks()).To(HaveLen(1))
+		Expect(spec.GetAdditionalDisks()[0].GetSizeGib()).To(Equal(int32(100)))
+	})
+
+	It("applies default for editable repeated field when spec_fields omits the path", func() {
+		spec := &privatev1.ComputeInstanceSpec{}
+		defaultVal, err := structpb.NewValue([]interface{}{
+			map[string]interface{}{"size_gib": float64(100)},
+		})
+		Expect(err).ToNot(HaveOccurred())
+		fieldDefs := []*privatev1.FieldDefinition{{
+			Path:     "additional_disks",
+			Editable: true,
+			Default:  defaultVal,
+		}}
+		mask := &fieldmaskpb.FieldMask{Paths: []string{"ssh_public_key"}}
+		err = applyFieldDefinitions(spec, fieldDefs, mask)
+		Expect(err).ToNot(HaveOccurred())
+		Expect(spec.GetAdditionalDisks()).To(HaveLen(1))
+		Expect(spec.GetAdditionalDisks()[0].GetSizeGib()).To(Equal(int32(100)))
 	})
 
 	It("preserves user-provided repeated field values", func() {
@@ -322,7 +343,7 @@ var _ = Describe("applyFieldDefinitions", func() {
 			Editable: true,
 			Default:  defaultVal,
 		}}
-		err = applyFieldDefinitions(spec, fieldDefs)
+		err = applyFieldDefinitions(spec, fieldDefs, nil)
 		Expect(err).ToNot(HaveOccurred())
 		Expect(spec.GetAdditionalDisks()).To(HaveLen(1))
 		Expect(spec.GetAdditionalDisks()[0].GetSizeGib()).To(Equal(int32(200)))
@@ -339,7 +360,7 @@ var _ = Describe("applyFieldDefinitions", func() {
 			Editable: false,
 			Default:  defaultVal,
 		}}
-		err = applyFieldDefinitions(spec, fieldDefs)
+		err = applyFieldDefinitions(spec, fieldDefs, nil)
 		Expect(err).ToNot(HaveOccurred())
 		Expect(spec.GetAdditionalDisks()).To(HaveLen(1))
 		Expect(spec.GetAdditionalDisks()[0].GetSizeGib()).To(Equal(int32(50)))
@@ -351,7 +372,7 @@ var _ = Describe("applyFieldDefinitions", func() {
 			Path:     "additional_disks",
 			Editable: true,
 		}}
-		err := applyFieldDefinitions(spec, fieldDefs)
+		err := applyFieldDefinitions(spec, fieldDefs, nil)
 		Expect(err).To(HaveOccurred())
 		Expect(status.Code(err)).To(Equal(codes.InvalidArgument))
 		Expect(err.Error()).To(ContainSubstring("additional_disks"))
@@ -385,7 +406,7 @@ var _ = Describe("applyFieldDefinitions rejects unlisted fields", func() {
 			Editable: true,
 			Default:  defaultVal,
 		}}
-		err = applyFieldDefinitions(spec, fieldDefs)
+		err = applyFieldDefinitions(spec, fieldDefs, nil)
 		Expect(err).To(HaveOccurred())
 		Expect(status.Code(err)).To(Equal(codes.InvalidArgument))
 		Expect(err.Error()).To(ContainSubstring("pull_secret"))
@@ -405,7 +426,7 @@ var _ = Describe("applyFieldDefinitions rejects unlisted fields", func() {
 			Editable: true,
 			Default:  defaultVal,
 		}}
-		err = applyFieldDefinitions(spec, fieldDefs)
+		err = applyFieldDefinitions(spec, fieldDefs, nil)
 		Expect(err).To(HaveOccurred())
 		Expect(status.Code(err)).To(Equal(codes.InvalidArgument))
 		Expect(err.Error()).To(ContainSubstring("pull_secret"))
@@ -423,7 +444,7 @@ var _ = Describe("applyFieldDefinitions rejects unlisted fields", func() {
 			{Path: "pull_secret", Editable: true},
 			{Path: "ssh_public_key", Editable: true},
 		}
-		err := applyFieldDefinitions(spec, fieldDefs)
+		err := applyFieldDefinitions(spec, fieldDefs, nil)
 		Expect(err).ToNot(HaveOccurred())
 	})
 
@@ -438,7 +459,7 @@ var _ = Describe("applyFieldDefinitions rejects unlisted fields", func() {
 			Editable: true,
 			Default:  defaultVal,
 		}}
-		err = applyFieldDefinitions(spec, fieldDefs)
+		err = applyFieldDefinitions(spec, fieldDefs, nil)
 		Expect(err).ToNot(HaveOccurred())
 	})
 
@@ -453,7 +474,7 @@ var _ = Describe("applyFieldDefinitions rejects unlisted fields", func() {
 			Editable: true,
 			Default:  defaultVal,
 		}}
-		err = applyFieldDefinitions(spec, fieldDefs)
+		err = applyFieldDefinitions(spec, fieldDefs, nil)
 		Expect(err).ToNot(HaveOccurred())
 	})
 
@@ -468,7 +489,7 @@ var _ = Describe("applyFieldDefinitions rejects unlisted fields", func() {
 			Path:     "network",
 			Editable: true,
 		}}
-		err := applyFieldDefinitions(spec, fieldDefs)
+		err := applyFieldDefinitions(spec, fieldDefs, nil)
 		Expect(err).ToNot(HaveOccurred())
 	})
 
@@ -484,7 +505,7 @@ var _ = Describe("applyFieldDefinitions rejects unlisted fields", func() {
 			Editable: false,
 			Default:  defaultVal,
 		}}
-		err = applyFieldDefinitions(spec, fieldDefs)
+		err = applyFieldDefinitions(spec, fieldDefs, nil)
 		Expect(err).To(HaveOccurred())
 		Expect(status.Code(err)).To(Equal(codes.InvalidArgument))
 		Expect(err.Error()).To(ContainSubstring("not allowed"))
@@ -506,7 +527,7 @@ var _ = Describe("applyFieldDefinitions rejects unlisted fields", func() {
 			Editable: true,
 			Default:  defaultVal,
 		}}
-		err = applyFieldDefinitions(spec, fieldDefs)
+		err = applyFieldDefinitions(spec, fieldDefs, nil)
 		Expect(err).To(HaveOccurred())
 		Expect(status.Code(err)).To(Equal(codes.InvalidArgument))
 		Expect(err.Error()).To(ContainSubstring("template_parameters"))
@@ -525,7 +546,7 @@ var _ = Describe("applyFieldDefinitions rejects unlisted fields", func() {
 			Path:     "template_parameters.vpc_id",
 			Editable: true,
 		}}
-		err = applyFieldDefinitions(spec, fieldDefs)
+		err = applyFieldDefinitions(spec, fieldDefs, nil)
 		Expect(err).ToNot(HaveOccurred())
 	})
 
@@ -541,7 +562,7 @@ var _ = Describe("applyFieldDefinitions rejects unlisted fields", func() {
 			Editable: true,
 			Default:  defaultVal,
 		}}
-		err = applyFieldDefinitions(spec, fieldDefs)
+		err = applyFieldDefinitions(spec, fieldDefs, nil)
 		Expect(err).To(HaveOccurred())
 		Expect(status.Code(err)).To(Equal(codes.InvalidArgument))
 		Expect(err.Error()).To(ContainSubstring("run_strategy"))
