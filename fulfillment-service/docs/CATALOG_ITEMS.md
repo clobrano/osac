@@ -212,6 +212,10 @@ field_definitions:
     default: 20
     display_name: Boot Disk Size (GiB)
     editable: true
+  - path: boot_disk.storage_tier
+    default: standard
+    display_name: Boot Disk Storage Tier
+    editable: true
   - path: instance_type
     display_name: Instance Type
     editable: true
@@ -304,6 +308,7 @@ catalog item, the server rejects any spec field not listed in `field_definitions
 | `user_data` | Cloud-init or ignition user data |
 | `disk_image` | DiskImage reference (name or ID) |
 | `boot_disk.size_gib` | Boot disk size in GiB |
+| `boot_disk.storage_tier` | Boot disk storage tier |
 | `additional_disks` | Additional disk configurations |
 | `network_attachments` | Network attachments (subnet + security groups per NIC) |
 | `template_parameters.<name>` | Custom template parameter forwarded to AAP as an Ansible extra variable |

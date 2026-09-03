@@ -124,8 +124,10 @@ class OsacCLI:
                     raise ValueError(f"additional_disks[{idx}]: 'size_gib' must be a positive integer, got {size!r}")
 
                 storage_tier = disk.get("storage_tier")
-                if storage_tier is None:
-                    raise ValueError(f"additional_disks[{idx}]: 'storage_tier' is required, got None")
+                if not isinstance(storage_tier, str) or not storage_tier.strip():
+                    raise ValueError(
+                        f"additional_disks[{idx}]: 'storage_tier' must be a non-empty string, got {storage_tier!r}"
+                    )
 
                 # Build --additional-disk flag value: size=<GiB>,storage-tier=<name>
                 disk_spec = f"size={size},storage-tier={storage_tier}"

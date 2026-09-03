@@ -770,6 +770,7 @@ func (c *runnerContext) buildSpec(templateID string,
 }
 
 // buildBootDisk returns a boot disk from CLI flags, or nil if neither size nor storage tier was set.
+// A size-only boot disk is allowed because the server may resolve its tier from a catalog item or template.
 func (c *runnerContext) buildBootDisk() (*publicv1.ComputeInstanceDisk, error) {
 	if c.args.bootDiskSizeGiB <= 0 && c.args.bootDiskStorageTier == "" {
 		return nil, nil
@@ -912,11 +913,8 @@ func (c *runnerContext) buildSpecFromCatalogItem(catalogItemID string) (*publicv
 	return spec.Build(), nil
 }
 
-// parseAdditionalDisks parses disk specifications in two formats:
-//  1. Bare integer (legacy): "100" specifies size in GiB
-//  2. Key=value format: "size=100,storage-tier=standard"
-//
-// The storage-tier field is optional in the key=value format for backward compatibility.
+// parseAdditionalDisks parses disk specifications in key=value format:
+// "size=100,storage-tier=standard".
 func parseAdditionalDisks(diskArgs []string) ([]*publicv1.ComputeInstanceDisk, error) {
 	disks := make([]*publicv1.ComputeInstanceDisk, 0, len(diskArgs))
 	for _, arg := range diskArgs {
@@ -925,22 +923,16 @@ func parseAdditionalDisks(diskArgs []string) ([]*publicv1.ComputeInstanceDisk, e
 			return nil, fmt.Errorf("empty --additional-disk value")
 		}
 
-		// Legacy format: bare integer is interpreted as size in GiB
+		// Additional disks must name their storage tier because they have no catalog or
+		// template defaulting step at the CLI boundary.
 		if !strings.Contains(arg, "=") {
-			sizeGiB, err := strconv.ParseInt(arg, 10, 32)
-			if err != nil {
-				return nil, fmt.Errorf("invalid --additional-disk value %q: expected an integer or key=value format", arg)
-			}
-			disk := publicv1.ComputeInstanceDisk_builder{
-				SizeGib: proto.Int32(int32(sizeGiB)),
-			}.Build()
-			disks = append(disks, disk)
-			continue
+			return nil, fmt.Errorf("invalid --additional-disk value %q: use size=<GiB>,storage-tier=<name>", arg)
 		}
 
 		// Key=value format
 		disk := publicv1.ComputeInstanceDisk_builder{}
 		var hasSize bool
+		var storageTier string
 
 		for _, fragment := range strings.Split(arg, ",") {
 			fragment = strings.TrimSpace(fragment)
@@ -970,6 +962,7 @@ func parseAdditionalDisks(diskArgs []string) ([]*publicv1.ComputeInstanceDisk, e
 				hasSize = true
 			case "storage-tier":
 				disk.StorageTier = proto.String(value)
+				storageTier = value
 			default:
 				return nil, fmt.Errorf("unknown --additional-disk key %q (expected 'size' or 'storage-tier')", key)
 			}
@@ -977,6 +970,9 @@ func parseAdditionalDisks(diskArgs []string) ([]*publicv1.ComputeInstanceDisk, e
 
 		if !hasSize {
 			return nil, fmt.Errorf("--additional-disk %q must include size=<value>", arg)
+		}
+		if strings.TrimSpace(storageTier) == "" {
+			return nil, fmt.Errorf("--additional-disk %q must include storage-tier=<name>", arg)
 		}
 
 		disks = append(disks, disk.Build())
@@ -1093,8 +1089,8 @@ _TIER_ - Storage tier for the boot disk.
 
 const additionalDiskFlagHelp = `
 _SPEC_ - Additional disk specification. Accepts two formats:
-1. Bare integer: {{ bt }}<GiB>{{ bt }} specifies disk size in GiB (temporary, backward compatibility only)
-2. Key=value: {{ bt }}size=<GiB>,storage-tier=<name>{{ bt }} specifies disk size and storage tier name
+{{ bt }}size=<GiB>,storage-tier=<name>{{ bt }} specifies disk size and storage tier name.
+The storage tier is required for every additional disk.
 
 Can be specified multiple times to add more than one disk.
 `

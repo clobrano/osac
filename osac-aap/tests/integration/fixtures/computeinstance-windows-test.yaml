@@ -13,6 +13,7 @@ spec:
   memoryGiB: 4
   bootDisk:
     sizeGiB: 40
+    storageTier: local
   image:
     sourceType: registry
     # Example path for tests/docs only — replace with a Windows container disk from your registry.

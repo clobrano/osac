@@ -17,9 +17,8 @@ def verify_datavolume_storage_classes(
 ) -> None:
     """Verify that DataVolumes were created with correct StorageClasses.
 
-    NOTE: Commented out in all tests until osac PR #257 (OSAC-3632) merges.
-    AAP currently uses global _requested_storage_tier and ignores per-disk storageTier fields.
-    After PR #257 merges, uncomment the verify_datavolume_storage_classes() calls in tests.
+    The fulfillment service resolves a tier independently for the boot disk and each
+    additional disk; the resulting names determine the DataVolume StorageClasses.
     """
     _ = k8s_hub_client.get_compute_instance_vm_namespace(name=ci_name)
 
@@ -230,16 +229,20 @@ def test_compute_instance_tier_immutability(
             wait_for_deletion(k8s=k8s_hub_client, name=ci_name)
 
 
-@pytest.mark.skip(
-    reason="Requires mandatory storage_tier validation (follow-up osac PR after this test infrastructure lands)"
-)
+@pytest.mark.parametrize("storage_tier", [None, ""])
 def test_compute_instance_boot_disk_tier_required(
-    private_grpc: GRPCClient, vm_template: str, default_subnet: str, default_instance_type: str, default_disk_image: str
+    private_grpc: GRPCClient,
+    vm_template: str,
+    default_subnet: str,
+    default_instance_type: str,
+    default_disk_image: str,
+    storage_tier: str | None,
 ) -> None:
-    """Verify that missing boot disk tier returns INVALID_ARGUMENT.
+    """Verify that absent and empty boot disk tiers return INVALID_ARGUMENT."""
+    boot_disk = {"size_gib": 20}
+    if storage_tier is not None:
+        boot_disk["storage_tier"] = storage_tier
 
-    Skipped until follow-up PR makes storage_tier mandatory.
-    """
     with pytest.raises(subprocess.CalledProcessError) as exc_info:
         private_grpc.call(
             service="osac.private.v1.ComputeInstances/Create",
@@ -249,7 +252,7 @@ def test_compute_instance_boot_disk_tier_required(
                     "spec": {
                         "template": {"name": vm_template},
                         "instance_type": {"name": default_instance_type},
-                        "boot_disk": {"size_gib": 20},  # No storage_tier
+                        "boot_disk": boot_disk,
                         "network_attachments": [{"subnet": {"id": default_subnet}}],
                         "disk_image": {"name": default_disk_image},
                         "run_strategy": "Always",
@@ -262,9 +265,7 @@ def test_compute_instance_boot_disk_tier_required(
     assert "storage_tier is required" in str(exc_info.value.stderr).lower()
 
 
-@pytest.mark.skip(
-    reason="Requires mandatory storage_tier validation (follow-up osac PR after this test infrastructure lands)"
-)
+@pytest.mark.parametrize("storage_tier", [None, ""])
 def test_compute_instance_additional_disk_tier_required(
     private_grpc: GRPCClient,
     vm_template: str,
@@ -272,11 +273,13 @@ def test_compute_instance_additional_disk_tier_required(
     default_storage_tier: str,
     default_instance_type: str,
     default_disk_image: str,
+    storage_tier: str | None,
 ) -> None:
-    """Verify that missing additional disk tier returns INVALID_ARGUMENT.
+    """Verify that absent and empty additional disk tiers return INVALID_ARGUMENT."""
+    additional_disk = {"size_gib": 50}
+    if storage_tier is not None:
+        additional_disk["storage_tier"] = storage_tier
 
-    Skipped until follow-up PR makes storage_tier mandatory.
-    """
     with pytest.raises(subprocess.CalledProcessError) as exc_info:
         private_grpc.call(
             service="osac.private.v1.ComputeInstances/Create",
@@ -288,7 +291,7 @@ def test_compute_instance_additional_disk_tier_required(
                         "instance_type": {"name": default_instance_type},
                         "boot_disk": {"size_gib": 20, "storage_tier": default_storage_tier},
                         "additional_disks": [
-                            {"size_gib": 50}  # No storage_tier
+                            additional_disk,
                         ],
                         "network_attachments": [{"subnet": {"id": default_subnet}}],
                         "disk_image": {"name": default_disk_image},

@@ -298,18 +298,46 @@ var _ = Describe("--additional-disk flag parsing", func() {
 		Expect(disks[0].GetStorageTier()).To(Equal("e2e-x"))
 	})
 
-	It("should treat each flag occurrence as a distinct disk", func() {
+	It("should parse multiple disks with different storage tiers", func() {
+		raw := rawDisks(
+			"--additional-disk", "size=50,storage-tier=fast",
+			"--additional-disk", "size=100,storage-tier=archive",
+		)
+		Expect(raw).To(Equal([]string{
+			"size=50,storage-tier=fast",
+			"size=100,storage-tier=archive",
+		}))
+
+		disks, err := parseAdditionalDisks(raw)
+		Expect(err).ToNot(HaveOccurred())
+		Expect(disks).To(HaveLen(2))
+		Expect(disks[0].GetSizeGib()).To(Equal(int32(50)))
+		Expect(disks[0].GetStorageTier()).To(Equal("fast"))
+		Expect(disks[1].GetSizeGib()).To(Equal(int32(100)))
+		Expect(disks[1].GetStorageTier()).To(Equal("archive"))
+	})
+
+	It("should reject a bare integer additional disk", func() {
 		raw := rawDisks(
 			"--additional-disk", "size=50,storage-tier=e2e-x",
 			"--additional-disk", "100",
 		)
 		Expect(raw).To(Equal([]string{"size=50,storage-tier=e2e-x", "100"}))
 
-		disks, err := parseAdditionalDisks(raw)
-		Expect(err).ToNot(HaveOccurred())
-		Expect(disks).To(HaveLen(2))
-		Expect(disks[0].GetSizeGib()).To(Equal(int32(50)))
-		Expect(disks[0].GetStorageTier()).To(Equal("e2e-x"))
-		Expect(disks[1].GetSizeGib()).To(Equal(int32(100)))
+		_, err := parseAdditionalDisks(raw)
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring("storage-tier=<name>"))
+	})
+
+	It("should reject an additional disk without a storage tier", func() {
+		_, err := parseAdditionalDisks([]string{"size=100"})
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring("storage-tier=<name>"))
+	})
+
+	It("should reject an additional disk with an empty storage tier", func() {
+		_, err := parseAdditionalDisks([]string{"size=100,storage-tier="})
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring("value is empty"))
 	})
 })
