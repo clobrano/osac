@@ -421,7 +421,7 @@ var _ = Describe("ValidateRequiredSpecFields", func() {
 		Expect(err.Error()).To(ContainSubstring("boot_disk.size_gib"))
 	})
 
-	It("Accepts boot_disk with empty storage_tier", func() {
+	It("Rejects boot_disk with empty storage_tier", func() {
 		spec := privatev1.ComputeInstanceSpec_builder{
 			Template:     privatev1.ComputeInstanceTemplateReference_builder{Id: "test.template"}.Build(),
 			InstanceType: privatev1.InstanceTypeReference_builder{Id: "standard-4-16"}.Build(),
@@ -433,10 +433,13 @@ var _ = Describe("ValidateRequiredSpecFields", func() {
 			RunStrategy: privatev1.ComputeInstanceRunStrategy_COMPUTE_INSTANCE_RUN_STRATEGY_ALWAYS.Enum(),
 		}.Build()
 
-		Expect(ValidateRequiredSpecFields(spec)).To(Succeed())
+		err := ValidateRequiredSpecFields(spec)
+		Expect(err).To(HaveOccurred())
+		Expect(status.Code(err)).To(Equal(codes.InvalidArgument))
+		Expect(err.Error()).To(ContainSubstring("boot_disk.storage_tier is required"))
 	})
 
-	It("Accepts boot_disk without storage_tier", func() {
+	It("Rejects boot_disk without storage_tier", func() {
 		spec := privatev1.ComputeInstanceSpec_builder{
 			Template:     privatev1.ComputeInstanceTemplateReference_builder{Id: "test.template"}.Build(),
 			InstanceType: privatev1.InstanceTypeReference_builder{Id: "standard-4-16"}.Build(),
@@ -447,10 +450,13 @@ var _ = Describe("ValidateRequiredSpecFields", func() {
 			RunStrategy: privatev1.ComputeInstanceRunStrategy_COMPUTE_INSTANCE_RUN_STRATEGY_ALWAYS.Enum(),
 		}.Build()
 
-		Expect(ValidateRequiredSpecFields(spec)).To(Succeed())
+		err := ValidateRequiredSpecFields(spec)
+		Expect(err).To(HaveOccurred())
+		Expect(status.Code(err)).To(Equal(codes.InvalidArgument))
+		Expect(err.Error()).To(ContainSubstring("boot_disk.storage_tier is required"))
 	})
 
-	It("Accepts additional_disk with empty storage_tier", func() {
+	It("Rejects additional_disk with empty storage_tier", func() {
 		spec := privatev1.ComputeInstanceSpec_builder{
 			Template:     privatev1.ComputeInstanceTemplateReference_builder{Id: "test.template"}.Build(),
 			InstanceType: privatev1.InstanceTypeReference_builder{Id: "standard-4-16"}.Build(),
@@ -472,10 +478,13 @@ var _ = Describe("ValidateRequiredSpecFields", func() {
 			RunStrategy: privatev1.ComputeInstanceRunStrategy_COMPUTE_INSTANCE_RUN_STRATEGY_ALWAYS.Enum(),
 		}.Build()
 
-		Expect(ValidateRequiredSpecFields(spec)).To(Succeed())
+		err := ValidateRequiredSpecFields(spec)
+		Expect(err).To(HaveOccurred())
+		Expect(status.Code(err)).To(Equal(codes.InvalidArgument))
+		Expect(err.Error()).To(ContainSubstring("additional_disks[1].storage_tier is required"))
 	})
 
-	It("Accepts additional_disk without storage_tier", func() {
+	It("Rejects additional_disk without storage_tier", func() {
 		spec := privatev1.ComputeInstanceSpec_builder{
 			Template:     privatev1.ComputeInstanceTemplateReference_builder{Id: "test.template"}.Build(),
 			InstanceType: privatev1.InstanceTypeReference_builder{Id: "standard-4-16"}.Build(),
@@ -496,6 +505,27 @@ var _ = Describe("ValidateRequiredSpecFields", func() {
 			RunStrategy: privatev1.ComputeInstanceRunStrategy_COMPUTE_INSTANCE_RUN_STRATEGY_ALWAYS.Enum(),
 		}.Build()
 
-		Expect(ValidateRequiredSpecFields(spec)).To(Succeed())
+		err := ValidateRequiredSpecFields(spec)
+		Expect(err).To(HaveOccurred())
+		Expect(status.Code(err)).To(Equal(codes.InvalidArgument))
+		Expect(err.Error()).To(ContainSubstring("additional_disks[1].storage_tier is required"))
+	})
+
+	It("Rejects whitespace-only storage_tier values", func() {
+		spec := privatev1.ComputeInstanceSpec_builder{
+			Template:     privatev1.ComputeInstanceTemplateReference_builder{Id: "test.template"}.Build(),
+			InstanceType: privatev1.InstanceTypeReference_builder{Id: "standard-4-16"}.Build(),
+			DiskImage:    &privatev1.DiskImageReference{Id: "test-disk-image"},
+			BootDisk: privatev1.ComputeInstanceDisk_builder{
+				SizeGib:     proto.Int32(20),
+				StorageTier: new(" \t\n"),
+			}.Build(),
+			RunStrategy: privatev1.ComputeInstanceRunStrategy_COMPUTE_INSTANCE_RUN_STRATEGY_ALWAYS.Enum(),
+		}.Build()
+
+		err := ValidateRequiredSpecFields(spec)
+		Expect(err).To(HaveOccurred())
+		Expect(status.Code(err)).To(Equal(codes.InvalidArgument))
+		Expect(err.Error()).To(ContainSubstring("boot_disk.storage_tier is required"))
 	})
 })

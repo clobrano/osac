@@ -1042,6 +1042,7 @@ var _ = Describe("Private compute instances server", func() {
 			Expect(spec.GetRunStrategy()).To(Equal(privatev1.ComputeInstanceRunStrategy_COMPUTE_INSTANCE_RUN_STRATEGY_ALWAYS))
 			Expect(spec.GetDiskImage().GetId()).To(Equal("test-disk-image"))
 			Expect(spec.GetBootDisk().GetSizeGib()).To(Equal(int32(10)))
+			Expect(spec.GetBootDisk().GetStorageTier()).To(Equal("standard"))
 			// Template reference should be preserved:
 			Expect(spec.GetTemplate().GetId()).To(Equal("defaults-template"))
 		})
@@ -1076,6 +1077,111 @@ var _ = Describe("Private compute instances server", func() {
 			Expect(spec.GetInstanceType().GetId()).To(Equal("standard-4-16"))
 			Expect(spec.GetDiskImage().GetId()).To(Equal("test-disk-image"))
 			Expect(spec.GetBootDisk().GetSizeGib()).To(Equal(int32(10)))
+			Expect(spec.GetBootDisk().GetStorageTier()).To(Equal("standard"))
+		})
+
+		It("Rejects creation when the resolved boot disk storage tier is absent or empty", func() {
+			templatesDao, err := dao.NewGenericDAO[*privatev1.ComputeInstanceTemplate]().
+				SetLogger(logger).
+				SetTenancyLogic(tenancy).
+				Build()
+			Expect(err).ToNot(HaveOccurred())
+
+			const templateID = "missing-boot-tier-template"
+			_, err = templatesDao.Create().SetObject(privatev1.ComputeInstanceTemplate_builder{
+				Id:          templateID,
+				Title:       "Missing Boot Tier Template",
+				Description: "Template with a boot disk but no storage tier",
+				Metadata: privatev1.Metadata_builder{
+					Name:   templateID,
+					Tenant: testTenant,
+				}.Build(),
+				SpecDefaults: privatev1.ComputeInstanceTemplateSpecDefaults_builder{
+					InstanceType: privatev1.InstanceTypeReference_builder{Id: "standard-4-16"}.Build(),
+					DiskImage:    &privatev1.DiskImageReference{Id: "test-disk-image"},
+					BootDisk: privatev1.ComputeInstanceDisk_builder{
+						SizeGib: proto.Int32(10),
+					}.Build(),
+					RunStrategy: privatev1.ComputeInstanceRunStrategy_COMPUTE_INSTANCE_RUN_STRATEGY_ALWAYS.Enum(),
+				}.Build(),
+			}.Build()).Do(ctx)
+			Expect(err).ToNot(HaveOccurred())
+
+			for _, bootDisk := range []*privatev1.ComputeInstanceDisk{
+				nil,
+				privatev1.ComputeInstanceDisk_builder{
+					SizeGib:     proto.Int32(20),
+					StorageTier: new(""),
+				}.Build(),
+			} {
+				name := fmt.Sprintf("test-%s", uuid.NewString()[:8])
+				response, err := server.Create(ctx, privatev1.ComputeInstancesCreateRequest_builder{
+					Object: privatev1.ComputeInstance_builder{
+						Metadata: privatev1.Metadata_builder{Name: name}.Build(),
+						Spec: privatev1.ComputeInstanceSpec_builder{
+							Template: privatev1.ComputeInstanceTemplateReference_builder{Id: templateID}.Build(),
+							BootDisk: bootDisk,
+							NetworkAttachments: []*privatev1.ComputeNetworkAttachment{
+								privatev1.ComputeNetworkAttachment_builder{
+									Subnet: privatev1.SubnetLocalReference_builder{Id: "test-subnet"}.Build(),
+								}.Build(),
+							},
+						}.Build(),
+					}.Build(),
+				}.Build())
+				Expect(err).To(HaveOccurred())
+				Expect(response).To(BeNil())
+				status, ok := grpcstatus.FromError(err)
+				Expect(ok).To(BeTrue())
+				Expect(status.Code()).To(Equal(grpccodes.InvalidArgument))
+				Expect(status.Message()).To(Equal("boot_disk.storage_tier is required"))
+
+				listResponse, err := server.List(ctx, privatev1.ComputeInstancesListRequest_builder{
+					Filter: new(fmt.Sprintf("this.metadata.name == '%s'", name)),
+				}.Build())
+				Expect(err).ToNot(HaveOccurred())
+				Expect(listResponse.GetSize()).To(Equal(int32(0)))
+			}
+		})
+
+		It("Rejects creation when an additional disk storage tier is absent or empty", func() {
+			createTemplate("additional-tier-template")
+
+			for _, storageTier := range []*string{nil, new("")} {
+				name := fmt.Sprintf("test-%s", uuid.NewString()[:8])
+				additionalDisk := privatev1.ComputeInstanceDisk_builder{SizeGib: proto.Int32(50)}
+				if storageTier != nil {
+					additionalDisk.StorageTier = storageTier
+				}
+				response, err := server.Create(ctx, privatev1.ComputeInstancesCreateRequest_builder{
+					Object: privatev1.ComputeInstance_builder{
+						Metadata: privatev1.Metadata_builder{Name: name}.Build(),
+						Spec: privatev1.ComputeInstanceSpec_builder{
+							Template: privatev1.ComputeInstanceTemplateReference_builder{Id: "additional-tier-template"}.Build(),
+							AdditionalDisks: []*privatev1.ComputeInstanceDisk{
+								additionalDisk.Build(),
+							},
+							NetworkAttachments: []*privatev1.ComputeNetworkAttachment{
+								privatev1.ComputeNetworkAttachment_builder{
+									Subnet: privatev1.SubnetLocalReference_builder{Id: "test-subnet"}.Build(),
+								}.Build(),
+							},
+						}.Build(),
+					}.Build(),
+				}.Build())
+				Expect(err).To(HaveOccurred())
+				Expect(response).To(BeNil())
+				status, ok := grpcstatus.FromError(err)
+				Expect(ok).To(BeTrue())
+				Expect(status.Code()).To(Equal(grpccodes.InvalidArgument))
+				Expect(status.Message()).To(Equal("additional_disks[0].storage_tier is required"))
+
+				listResponse, err := server.List(ctx, privatev1.ComputeInstancesListRequest_builder{
+					Filter: new(fmt.Sprintf("this.metadata.name == '%s'", name)),
+				}.Build())
+				Expect(err).ToNot(HaveOccurred())
+				Expect(listResponse.GetSize()).To(Equal(int32(0)))
+			}
 		})
 
 		It("Rejects creation when required spec fields are missing", func() {
@@ -3004,7 +3110,8 @@ var _ = Describe("Private compute instances server", func() {
 							InstanceType: privatev1.InstanceTypeReference_builder{Id: "standard-4-16"}.Build(),
 							DiskImage:    &privatev1.DiskImageReference{Id: diskImageKey},
 							BootDisk: privatev1.ComputeInstanceDisk_builder{
-								SizeGib: proto.Int32(20),
+								SizeGib:     proto.Int32(20),
+								StorageTier: new("standard"),
 							}.Build(),
 							RunStrategy: privatev1.ComputeInstanceRunStrategy_COMPUTE_INSTANCE_RUN_STRATEGY_ALWAYS.Enum(),
 							NetworkAttachments: []*privatev1.ComputeNetworkAttachment{
@@ -3103,7 +3210,8 @@ var _ = Describe("Private compute instances server", func() {
 							InstanceType: privatev1.InstanceTypeReference_builder{Id: "standard-4-16"}.Build(),
 							DiskImage:    &privatev1.DiskImageReference{Name: "di-by-name"},
 							BootDisk: privatev1.ComputeInstanceDisk_builder{
-								SizeGib: proto.Int32(20),
+								SizeGib:     proto.Int32(20),
+								StorageTier: new("standard"),
 							}.Build(),
 							RunStrategy: privatev1.ComputeInstanceRunStrategy_COMPUTE_INSTANCE_RUN_STRATEGY_ALWAYS.Enum(),
 							NetworkAttachments: []*privatev1.ComputeNetworkAttachment{
