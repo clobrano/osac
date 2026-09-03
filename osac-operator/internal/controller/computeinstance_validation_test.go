@@ -24,6 +24,8 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	osacv1alpha1 "github.com/osac-project/osac/osac-operator/api/v1alpha1"
@@ -73,6 +75,26 @@ var _ = Describe("ComputeInstance CEL Validation", func() {
 				RunStrategy: osacv1alpha1.RunStrategyAlways,
 			},
 		}
+	}
+
+	instanceWithoutStorageTier := func(name string, additional bool) *unstructured.Unstructured {
+		instance := createValidInstance(name)
+		if additional {
+			instance.Spec.AdditionalDisks = []osacv1alpha1.DiskSpec{{SizeGiB: 50, StorageTier: "standard"}}
+		}
+		object, err := runtime.DefaultUnstructuredConverter.ToUnstructured(instance)
+		Expect(err).ToNot(HaveOccurred())
+		spec := object["spec"].(map[string]interface{})
+		if additional {
+			disks := spec["additionalDisks"].([]interface{})
+			delete(disks[0].(map[string]interface{}), "storageTier")
+		} else {
+			delete(spec["bootDisk"].(map[string]interface{}), "storageTier")
+		}
+		result := &unstructured.Unstructured{Object: object}
+		result.SetAPIVersion("osac.openshift.io/v1alpha1")
+		result.SetKind("ComputeInstance")
+		return result
 	}
 
 	It("should allow creation with networkAttachments", func() {
@@ -641,10 +663,38 @@ var _ = Describe("ComputeInstance CEL Validation", func() {
 	})
 
 	Describe("StorageTier validation", func() {
-		It("should accept a ComputeInstance without storageTier", func() {
-			instance := createValidInstance("test-tier-absent")
+		It("should reject a ComputeInstance without bootDisk storageTier", func() {
+			instance := instanceWithoutStorageTier("test-tier-absent", false)
+			err := k8sClient.Create(ctx, instance)
+			Expect(err).To(HaveOccurred())
+			Expect(apierrors.IsInvalid(err)).To(BeTrue())
+			Expect(err.Error()).To(ContainSubstring("storageTier"))
+		})
+
+		It("should reject an empty bootDisk storageTier", func() {
+			instance := createValidInstance("test-tier-empty")
 			instance.Spec.BootDisk.StorageTier = ""
-			Expect(k8sClient.Create(ctx, instance)).To(Succeed())
+			err := k8sClient.Create(ctx, instance)
+			Expect(err).To(HaveOccurred())
+			Expect(apierrors.IsInvalid(err)).To(BeTrue())
+			Expect(err.Error()).To(ContainSubstring("storageTier"))
+		})
+
+		It("should reject a ComputeInstance without additionalDisks storageTier", func() {
+			instance := instanceWithoutStorageTier("test-tier-additional-absent", true)
+			err := k8sClient.Create(ctx, instance)
+			Expect(err).To(HaveOccurred())
+			Expect(apierrors.IsInvalid(err)).To(BeTrue())
+			Expect(err.Error()).To(ContainSubstring("storageTier"))
+		})
+
+		It("should reject an empty additionalDisks storageTier", func() {
+			instance := createValidInstance("test-tier-additional-empty")
+			instance.Spec.AdditionalDisks = []osacv1alpha1.DiskSpec{{SizeGiB: 50}}
+			err := k8sClient.Create(ctx, instance)
+			Expect(err).To(HaveOccurred())
+			Expect(apierrors.IsInvalid(err)).To(BeTrue())
+			Expect(err.Error()).To(ContainSubstring("storageTier"))
 		})
 
 		DescribeTable("should accept valid storageTier values",

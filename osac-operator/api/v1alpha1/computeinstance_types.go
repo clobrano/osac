@@ -53,11 +53,12 @@ type DiskSpec struct {
 	// +kubebuilder:validation:Minimum=1
 	SizeGiB int32 `json:"sizeGiB"`
 
-	// StorageTier is the name of the storage tier for this disk
+	// StorageTier is the name of the storage tier for this disk. Every disk must name a tier.
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=63
 	// +kubebuilder:validation:Pattern=`^[a-z0-9]([a-z0-9._-]*[a-z0-9])?$`
-	// +optional
-	StorageTier string `json:"storageTier,omitempty"`
+	StorageTier string `json:"storageTier"`
 }
 
 // GpuSpec defines GPU passthrough configuration resolved from the InstanceType.

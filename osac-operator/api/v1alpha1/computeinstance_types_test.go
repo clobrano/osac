@@ -115,7 +115,7 @@ var _ = Describe("ComputeInstanceSpec", func() {
 				},
 				Cores:     8,
 				MemoryGiB: 64,
-				BootDisk:  v1alpha1.DiskSpec{SizeGiB: 100},
+				BootDisk:  v1alpha1.DiskSpec{SizeGiB: 100, StorageTier: "standard"},
 				Gpu: &v1alpha1.GpuSpec{
 					PciDeviceSelector: "10DE:20B0",
 					ResourceName:      "nvidia.com/A100",
