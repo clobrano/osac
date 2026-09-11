@@ -178,6 +178,44 @@ var _ = Describe("buildSpecFromCatalogItem", func() {
 
 		Expect(spec.GetUserDataSecret().GetName()).To(Equal("cloud-init"))
 	})
+
+	It("should leave spec_fields unset without additional disks", func() {
+		c := &runnerContext{}
+		spec, err := c.buildSpecFromCatalogItem("cat-006")
+		Expect(err).NotTo(HaveOccurred())
+
+		request := c.buildCatalogItemCreateRequest(publicv1.ComputeInstance_builder{
+			Spec: spec,
+		}.Build())
+		Expect(request.GetSpecFields()).To(BeNil())
+	})
+
+	It("should set one additional_disks spec field when disks are supplied", func() {
+		c := &runnerContext{}
+		c.args.additionalDisks = []string{"size=50,storage-tier=fast"}
+		spec, err := c.buildSpecFromCatalogItem("cat-007")
+		Expect(err).NotTo(HaveOccurred())
+
+		request := c.buildCatalogItemCreateRequest(publicv1.ComputeInstance_builder{
+			Spec: spec,
+		}.Build())
+		Expect(request.GetSpecFields().GetPaths()).To(Equal([]string{"additional_disks"}))
+	})
+
+	It("should emit only one additional_disks spec field for multiple disks", func() {
+		c := &runnerContext{}
+		c.args.additionalDisks = []string{
+			"size=50,storage-tier=fast",
+			"size=100,storage-tier=archive",
+		}
+		spec, err := c.buildSpecFromCatalogItem("cat-008")
+		Expect(err).NotTo(HaveOccurred())
+
+		request := c.buildCatalogItemCreateRequest(publicv1.ComputeInstance_builder{
+			Spec: spec,
+		}.Build())
+		Expect(request.GetSpecFields().GetPaths()).To(Equal([]string{"additional_disks"}))
+	})
 })
 
 var _ = Describe("Create computeinstance flag registration", func() {

@@ -30,6 +30,7 @@ import (
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/anypb"
 	"google.golang.org/protobuf/types/known/durationpb"
+	"google.golang.org/protobuf/types/known/fieldmaskpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 	"google.golang.org/protobuf/types/known/wrapperspb"
 
@@ -288,9 +289,7 @@ func (c *runnerContext) run(cmd *cobra.Command, args []string) error {
 			Spec: specResult,
 		}.Build()
 
-		response, err := c.computeInstancesClient.Create(ctx, publicv1.ComputeInstancesCreateRequest_builder{
-			Object: computeInstance,
-		}.Build())
+		response, err := c.computeInstancesClient.Create(ctx, c.buildCatalogItemCreateRequest(computeInstance))
 		if err != nil {
 			return fmt.Errorf("failed to create compute instance: %w", err)
 		}
@@ -928,6 +927,16 @@ func (c *runnerContext) buildSpecFromCatalogItem(catalogItemID string) (*publicv
 		return nil, err
 	}
 	return spec.Build(), nil
+}
+
+func (c *runnerContext) buildCatalogItemCreateRequest(computeInstance *publicv1.ComputeInstance) *publicv1.ComputeInstancesCreateRequest {
+	request := publicv1.ComputeInstancesCreateRequest_builder{
+		Object: computeInstance,
+	}
+	if len(c.args.additionalDisks) > 0 {
+		request.SpecFields = &fieldmaskpb.FieldMask{Paths: []string{"additional_disks"}}
+	}
+	return request.Build()
 }
 
 // parseAdditionalDisks parses disk specifications in key=value format:
