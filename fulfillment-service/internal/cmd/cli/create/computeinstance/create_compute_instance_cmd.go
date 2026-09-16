@@ -942,6 +942,10 @@ func (c *runnerContext) buildCatalogItemCreateRequest(computeInstance *publicv1.
 // parseAdditionalDisks parses disk specifications in key=value format:
 // "size=100,storage-tier=standard".
 func parseAdditionalDisks(diskArgs []string) ([]*publicv1.ComputeInstanceDisk, error) {
+	if len(diskArgs) == 1 && strings.TrimSpace(diskArgs[0]) == "" {
+		return []*publicv1.ComputeInstanceDisk{}, nil
+	}
+
 	disks := make([]*publicv1.ComputeInstanceDisk, 0, len(diskArgs))
 	for _, arg := range diskArgs {
 		arg = strings.TrimSpace(arg)
@@ -1118,6 +1122,7 @@ _TIER_ - Storage tier for the boot disk.
 const additionalDiskFlagHelp = `
 _SPEC_ - Additional disk specification. Accepts two formats:
 {{ bt }}size=<GiB>,storage-tier=<name>{{ bt }} specifies disk size and storage tier name.
+{{ bt }}""{{ bt }} explicitly opts out of the catalog item's additional disk defaults.
 The storage tier is required for every additional disk.
 
 Can be specified multiple times to add more than one disk.
