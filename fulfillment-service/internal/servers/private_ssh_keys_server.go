@@ -42,7 +42,6 @@ var _ privatev1.SshKeysServer = (*PrivateSshKeysServer)(nil)
 type PrivateSshKeysServer struct {
 	privatev1.UnimplementedSshKeysServer
 
-	logger  *slog.Logger
 	generic *GenericServer[*privatev1.SshKey]
 }
 
@@ -103,7 +102,6 @@ func (b *PrivateSshKeysServerBuilder) Build() (result *PrivateSshKeysServer, err
 	}
 
 	return &PrivateSshKeysServer{
-		logger:  b.logger,
 		generic: generic,
 	}, nil
 }

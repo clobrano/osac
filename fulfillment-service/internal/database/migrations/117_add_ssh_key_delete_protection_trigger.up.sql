@@ -15,11 +15,13 @@
 -- key reference fields without changing those API contracts in this story.
 create index compute_instances_ssh_key
   on compute_instances ((data->'spec'->'ssh_key'->>'id'))
-  where deletion_timestamp = 'epoch';
+  where deletion_timestamp = 'epoch'
+    and data->'spec'->'ssh_key'->>'id' is not null;
 
 create index bare_metal_instances_ssh_key
   on bare_metal_instances ((data->'spec'->'ssh_key'->>'id'))
-  where deletion_timestamp = 'epoch';
+  where deletion_timestamp = 'epoch'
+    and data->'spec'->'ssh_key'->>'id' is not null;
 
 create function check_ssh_key_not_in_use() returns trigger as $$
 begin

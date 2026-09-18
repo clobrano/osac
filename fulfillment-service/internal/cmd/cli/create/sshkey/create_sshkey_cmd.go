@@ -15,7 +15,6 @@ package sshkey
 
 import (
 	"fmt"
-	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -24,7 +23,6 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	"github.com/osac-project/osac/fulfillment-service/internal/config"
-	"github.com/osac-project/osac/fulfillment-service/internal/logging"
 	"github.com/osac-project/osac/fulfillment-service/internal/terminal"
 	publicv1 "github.com/osac-project/osac/proto/gen/osac/public/v1"
 )
@@ -55,7 +53,6 @@ type runnerContext struct {
 		publicKey     string
 		publicKeyFile string
 	}
-	logger   *slog.Logger
 	console  *terminal.Console
 	settings *config.Settings
 }
@@ -68,7 +65,6 @@ func (c *runnerContext) run(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	c.logger = logging.LoggerFromContext(ctx)
 	c.console = terminal.ConsoleFromContext(ctx)
 
 	c.settings = config.SettingsFromContext(ctx)
