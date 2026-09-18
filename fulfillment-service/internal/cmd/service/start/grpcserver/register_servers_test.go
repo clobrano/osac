@@ -242,8 +242,7 @@ type filterOracleCase struct {
 // afterward in run() — a targeted filter-oracle regression test for Users (covering the private-only
 // UserStatus.keycloak_user_id field) is added separately in users_server_test.go as part of this same fix.
 var resourcesExcludedFromDiscovery = map[string]bool{
-	"User":   true,
-	"SshKey": true, // The ssh_keys table is added by the following persistence task.
+	"User": true,
 }
 
 // discoverFilterOracleCases walks the public/private proto registries, pairs every public/private message by
