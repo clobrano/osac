@@ -80,6 +80,7 @@ class OsacCLI:
         run_strategy: str = "Always",
         user_data_secret_ref: str | None = None,
         instance_type: str | None = None,
+        ssh_key: str | None = None,
     ) -> str:
         args: list[str] = [
             "create",
@@ -168,6 +169,8 @@ class OsacCLI:
 
         if user_data_secret_ref is not None:
             args.extend(["--user-data", user_data_secret_ref])
+        if ssh_key is not None:
+            args.extend(["--ssh-key", ssh_key])
 
         return self._parse_uuid(self._run(*args))
 
@@ -250,11 +253,22 @@ class OsacCLI:
 
         return self._parse_uuid(self._run(*args))
 
-    def create_secret(self, *, name: str, from_files: dict[str, str]) -> None:
+    def create_secret(
+        self,
+        *,
+        name: str,
+        from_files: dict[str, str],
+        secret_type: str | None = None,
+    ) -> None:
         args: list[str] = ["create", "secret", "--name", name]
+        if secret_type is not None:
+            args.extend(["--type", secret_type])
         for key, path in from_files.items():
             args.extend(["--from-file", f"{key}={path}"])
         self._run(*args)
+
+    def delete_secret(self, *, name: str) -> None:
+        self._run("delete", "secret", name)
 
     def get(self, resource: str, *, output: str | None = None) -> str:
         args: list[str] = ["get", resource]
