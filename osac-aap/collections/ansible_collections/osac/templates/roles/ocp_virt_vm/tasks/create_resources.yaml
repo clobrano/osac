@@ -29,11 +29,18 @@
 
 # Phase 2: Create resources using resolved StorageClasses.
 
-# Root disk DV is created without `apply` because CDI mutates registry-source DVs
-# (adds pullMethod, binding annotations) after creation. Using apply on day-2 would
-# try to remove those CDI-managed fields, triggering "Cannot update DataVolume Spec"
-# (OSAC-3403). Additional disks use source.blank which CDI does not mutate.
-- name: Create DataVolume for VM root disk
+# Existing DataVolumes are immutable. Skip them during reconciliation so
+# CDI-managed fields and previously requested specs remain unchanged.
+- name: Check whether the VM root disk DataVolume exists
+  kubernetes.core.k8s_info:
+    kubeconfig: "{{ remote_cluster_kubeconfig | default(omit) }}"
+    api_version: cdi.kubevirt.io/v1beta1
+    kind: DataVolume
+    name: "{{ compute_instance_name }}-root-disk"
+    namespace: "{{ compute_instance_target_namespace }}"
+  register: root_datavolume_info
+
+- name: Create DataVolume for VM root disk when absent
   kubernetes.core.k8s:
     kubeconfig: "{{ remote_cluster_kubeconfig | default(omit) }}"
     definition:
@@ -55,8 +62,22 @@
               storage: "{{ vm_boot_disk_size }}"
           storageClassName: "{{ boot_disk_storage_class }}"
     state: present
+  when: root_datavolume_info.resources | length == 0
 
-- name: Create DataVolumes for additional disks
+- name: Check whether DataVolumes for additional disks exist
+  kubernetes.core.k8s_info:
+    kubeconfig: "{{ remote_cluster_kubeconfig | default(omit) }}"
+    api_version: cdi.kubevirt.io/v1beta1
+    kind: DataVolume
+    name: "{{ compute_instance_name }}-disk-{{ idx + 1 }}"
+    namespace: "{{ compute_instance_target_namespace }}"
+  loop: "{{ vm_additional_disks }}"
+  loop_control:
+    index_var: idx
+  register: additional_datavolume_info
+  when: vm_additional_disks | length > 0
+
+- name: Create DataVolumes for additional disks when absent
   kubernetes.core.k8s:
     kubeconfig: "{{ remote_cluster_kubeconfig | default(omit) }}"
     apply: true
@@ -81,7 +102,9 @@
   loop: "{{ vm_additional_disks }}"
   loop_control:
     index_var: idx
-  when: vm_additional_disks | length > 0
+  when:
+    - vm_additional_disks | length > 0
+    - additional_datavolume_info.results[idx].resources | length == 0
 
 - name: Add additional disks to template spec
   ansible.builtin.set_fact:

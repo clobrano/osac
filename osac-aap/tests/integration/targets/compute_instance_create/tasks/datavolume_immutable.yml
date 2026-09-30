@@ -1,0 +1,257 @@
+---
+- name: Compute Instance Create - DataVolume Immutability Test
+  hosts: localhost
+  gather_facts: true
+  vars_files:
+    - ../../../common_vars.yml
+
+  tasks:
+    - name: Read test cluster nodes
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ remote_cluster_kubeconfig | default(omit) }}"
+        api_version: v1
+        kind: Node
+      register: test_cluster_nodes
+
+    - name: Require the disposable osac-test Kind cluster
+      ansible.builtin.assert:
+        that:
+          - test_cluster_nodes.resources | map(attribute='metadata.name') | select('equalto', 'osac-test-control-plane') | list | length == 1
+        fail_msg: "This scenario may only run against the disposable osac-test Kind cluster."
+
+    # setup_test_env.sh scales CDI and KubeVirt deployments down but leaves
+    # their webhooks registered. Remove unavailable hooks in this disposable
+    # cluster so the test can exercise resource creation. Keep CDI validation
+    # enabled when its API service has a ready endpoint.
+    - name: Read mutating webhook configurations
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ remote_cluster_kubeconfig | default(omit) }}"
+        api_version: admissionregistration.k8s.io/v1
+        kind: MutatingWebhookConfiguration
+      register: mutating_webhooks
+
+    - name: Remove unavailable CDI and KubeVirt mutating webhooks in the test cluster
+      kubernetes.core.k8s:
+        kubeconfig: "{{ remote_cluster_kubeconfig | default(omit) }}"
+        api_version: admissionregistration.k8s.io/v1
+        kind: MutatingWebhookConfiguration
+        name: "{{ item }}"
+        state: absent
+      loop: "{{ mutating_webhooks.resources | map(attribute='metadata.name') | select('match', '^(cdi-api-datavolume-mutate|virt-api-mutator)$') | list }}"
+
+    - name: Read validating webhook configurations
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ remote_cluster_kubeconfig | default(omit) }}"
+        api_version: admissionregistration.k8s.io/v1
+        kind: ValidatingWebhookConfiguration
+      register: validating_webhooks
+
+    - name: Read CDI API endpoints
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ remote_cluster_kubeconfig | default(omit) }}"
+        api_version: v1
+        kind: Endpoints
+        name: cdi-api
+        namespace: cdi
+      register: cdi_api_endpoints
+
+    - name: Remove unavailable CDI DataVolume and KubeVirt validating webhooks in the test cluster
+      kubernetes.core.k8s:
+        kubeconfig: "{{ remote_cluster_kubeconfig | default(omit) }}"
+        api_version: admissionregistration.k8s.io/v1
+        kind: ValidatingWebhookConfiguration
+        name: "{{ item }}"
+        state: absent
+      loop: >-
+        {{ validating_webhooks.resources
+           | map(attribute='metadata.name')
+           | select('match', '^(cdi-api-datavolume-validate|virt-api-validator|virt-operator-tmp-webhook.*|virt-operator-validator)$')
+           | list }}
+      when: >-
+        item != 'cdi-api-datavolume-validate' or
+        cdi_api_endpoints.resources | map(attribute='subsets', default=[]) | flatten
+        | map(attribute='addresses', default=[]) | flatten | length == 0
+
+    - name: Read ComputeInstance fixture and add disks
+      ansible.builtin.set_fact:
+        test_compute_instance: >-
+          {{
+            (lookup('file', '../../../fixtures/computeinstance-test.yaml') | from_yaml)
+            | combine({
+                'metadata': {'name': 'osac-3403-dv-test'},
+                'spec': {
+                  'runStrategy': 'Halted',
+                  'additionalDisks': [
+                    {'sizeGiB': 10, 'storageTier': 'local'},
+                    {'sizeGiB': 5, 'storageTier': 'local'}
+                  ]
+                }
+              }, recursive=true)
+          }}
+
+    - name: Set test variables
+      ansible.builtin.set_fact:
+        compute_instance: "{{ test_compute_instance }}"
+        compute_instance_name: "{{ test_compute_instance.metadata.name }}"
+        template_id: osac.templates.ocp_virt_vm
+        template_parameters: {}
+        tenant_storage_class_tenant_name: test-tenant
+        tenant_storage_class_storage_classes:
+          - name: test-storage-class
+            tier: local
+        # Stop after resource creation so the test does not require a running VMI.
+        create_step_wait_annotate_override:
+          name: osac.workflows.workflow_helpers
+          tasks_from: noop.yml
+
+    - name: Seed DataVolumes and verify VM creation
+      block:
+        - name: Remove resources left by a previous test run
+          kubernetes.core.k8s:
+            kubeconfig: "{{ remote_cluster_kubeconfig | default(omit) }}"
+            state: absent
+            api_version: "{{ item.api_version }}"
+            kind: "{{ item.kind }}"
+            name: "{{ item.name }}"
+            namespace: test-subnet
+          loop:
+            - api_version: kubevirt.io/v1
+              kind: VirtualMachine
+              name: osac-3403-dv-test
+            - api_version: cdi.kubevirt.io/v1beta1
+              kind: DataVolume
+              name: osac-3403-dv-test-root-disk
+            - api_version: cdi.kubevirt.io/v1beta1
+              kind: DataVolume
+              name: osac-3403-dv-test-disk-1
+            - api_version: cdi.kubevirt.io/v1beta1
+              kind: DataVolume
+              name: osac-3403-dv-test-disk-2
+
+        - name: Seed root DataVolume with a tracked pull method
+          kubernetes.core.k8s:
+            kubeconfig: "{{ remote_cluster_kubeconfig | default(omit) }}"
+            apply: true
+            state: present
+            definition:
+              apiVersion: cdi.kubevirt.io/v1beta1
+              kind: DataVolume
+              metadata:
+                name: osac-3403-dv-test-root-disk
+                namespace: test-subnet
+                labels:
+                  osac.openshift.io/computeinstance: osac-3403-dv-test
+              spec:
+                source:
+                  registry:
+                    url: docker://quay.io/containerdisks/fedora:latest
+                    pullMethod: node
+                pvc:
+                  accessModes:
+                    - ReadWriteOnce
+                  resources:
+                    requests:
+                      storage: 20Gi
+                  storageClassName: test-storage-class
+
+        - name: Seed first additional DataVolume with an older requested size
+          kubernetes.core.k8s:
+            kubeconfig: "{{ remote_cluster_kubeconfig | default(omit) }}"
+            apply: true
+            state: present
+            definition:
+              apiVersion: cdi.kubevirt.io/v1beta1
+              kind: DataVolume
+              metadata:
+                name: osac-3403-dv-test-disk-1
+                namespace: test-subnet
+                labels:
+                  osac.openshift.io/computeinstance: osac-3403-dv-test
+              spec:
+                source:
+                  blank: {}
+                pvc:
+                  accessModes:
+                    - ReadWriteOnce
+                  resources:
+                    requests:
+                      storage: 7Gi
+                  storageClassName: test-storage-class
+
+        - name: Run the real VM template create tasks
+          ansible.builtin.include_role:
+            name: osac.templates.ocp_virt_vm
+            tasks_from: create.yaml
+
+        - name: Read root DataVolume
+          kubernetes.core.k8s_info:
+            kubeconfig: "{{ remote_cluster_kubeconfig | default(omit) }}"
+            api_version: cdi.kubevirt.io/v1beta1
+            kind: DataVolume
+            name: osac-3403-dv-test-root-disk
+            namespace: test-subnet
+          register: root_datavolume
+
+        - name: Read first additional DataVolume
+          kubernetes.core.k8s_info:
+            kubeconfig: "{{ remote_cluster_kubeconfig | default(omit) }}"
+            api_version: cdi.kubevirt.io/v1beta1
+            kind: DataVolume
+            name: osac-3403-dv-test-disk-1
+            namespace: test-subnet
+          register: first_additional_datavolume
+
+        - name: Read newly created second additional DataVolume
+          kubernetes.core.k8s_info:
+            kubeconfig: "{{ remote_cluster_kubeconfig | default(omit) }}"
+            api_version: cdi.kubevirt.io/v1beta1
+            kind: DataVolume
+            name: osac-3403-dv-test-disk-2
+            namespace: test-subnet
+          register: second_additional_datavolume
+
+        - name: Read VirtualMachine created after DataVolume checks
+          kubernetes.core.k8s_info:
+            kubeconfig: "{{ remote_cluster_kubeconfig | default(omit) }}"
+            api_version: kubevirt.io/v1
+            kind: VirtualMachine
+            name: osac-3403-dv-test
+            namespace: test-subnet
+          register: virtualmachine
+
+        - name: Verify existing DataVolumes are unchanged and workflow reached VM creation
+          ansible.builtin.assert:
+            that:
+              - root_datavolume.resources | length == 1
+              - root_datavolume.resources[0].spec.source.registry.pullMethod == 'node'
+              - first_additional_datavolume.resources | length == 1
+              - first_additional_datavolume.resources[0].spec.pvc.resources.requests.storage == '7Gi'
+              - second_additional_datavolume.resources | length == 1
+              - second_additional_datavolume.resources[0].spec.pvc.resources.requests.storage == '5Gi'
+              - virtualmachine.resources | length == 1
+              - virtualmachine.resources[0].spec.runStrategy == 'Halted'
+            fail_msg: >-
+              Existing DataVolumes must remain unchanged, missing DataVolumes must be created,
+              and VirtualMachine creation must proceed.
+      always:
+        - name: Remove test VirtualMachine and DataVolumes
+          kubernetes.core.k8s:
+            kubeconfig: "{{ remote_cluster_kubeconfig | default(omit) }}"
+            state: absent
+            api_version: "{{ item.api_version }}"
+            kind: "{{ item.kind }}"
+            name: "{{ item.name }}"
+            namespace: test-subnet
+          loop:
+            - api_version: kubevirt.io/v1
+              kind: VirtualMachine
+              name: osac-3403-dv-test
+            - api_version: cdi.kubevirt.io/v1beta1
+              kind: DataVolume
+              name: osac-3403-dv-test-root-disk
+            - api_version: cdi.kubevirt.io/v1beta1
+              kind: DataVolume
+              name: osac-3403-dv-test-disk-1
+            - api_version: cdi.kubevirt.io/v1beta1
+              kind: DataVolume
+              name: osac-3403-dv-test-disk-2

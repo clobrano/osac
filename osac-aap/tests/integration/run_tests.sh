@@ -28,6 +28,10 @@ run_ansible_playbook() {
     "$@"
 }
 
+run_ansible_playbook_with_native_jinja() {
+  ANSIBLE_JINJA2_NATIVE=true run_ansible_playbook "$@"
+}
+
 run_config_as_code_playbook() {
   ANSIBLE_CONFIG="${SCRIPT_DIR}/ansible.cfg" \
   ANSIBLE_JINJA2_NATIVE=true \
@@ -66,6 +70,7 @@ ROLE_SCENARIO_TESTS=(
   "cluster_working_namespace:test_not_found"
   "cluster_working_namespace:test_predefined"
   "cluster_working_namespace:test_found"
+  "compute_instance_create:datavolume_immutable"
 )
 
 echo "=== Running Workflow Integration Tests ==="
@@ -158,7 +163,12 @@ for entry in "${ROLE_SCENARIO_TESTS[@]}"; do
   echo "Testing role: $role ($scenario)"
   echo "----------------------------------------"
 
-  if run_ansible_playbook "targets/${role}/tasks/${scenario}.yml" -e "@common_vars.yml" -v; then
+  scenario_runner=run_ansible_playbook
+  if [ "${entry}" = "compute_instance_create:datavolume_immutable" ]; then
+    scenario_runner=run_ansible_playbook_with_native_jinja
+  fi
+
+  if "${scenario_runner}" "targets/${role}/tasks/${scenario}.yml" -e "@common_vars.yml" -v; then
     echo "  ✓ Passed"
     PASSED+=("$role:$scenario")
   else
