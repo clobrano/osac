@@ -55,7 +55,10 @@ const runningVm: ComputeInstance = {
   },
   spec: {
     $typeName: 'osac.public.v1.ComputeInstanceSpec',
-    additionalDisks: [],
+    additionalDisks: {
+      $typeName: 'osac.public.v1.ComputeInstanceDiskList',
+      items: [],
+    },
     catalogItem: create(ComputeInstanceCatalogItemReferenceSchema, { id: '' }),
     networkAttachments: [],
     template: create(ComputeInstanceTemplateReferenceSchema, { id: '' }),
