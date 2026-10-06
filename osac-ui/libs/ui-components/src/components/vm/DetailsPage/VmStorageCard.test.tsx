@@ -11,13 +11,10 @@ describe('VmStorageCard', () => {
     const vm = {
       spec: {
         bootDisk: { sizeGib: 40, storageTier: { id: 'tier-balanced', name: 'balanced' } },
-        additionalDisks: {
-          $typeName: 'osac.public.v1.ComputeInstanceDiskList',
-          items: [
-            { sizeGib: 100, storageTier: { name: 'fast' } },
-            { sizeGib: 20, storageTier: { name: 'capacity' } },
-          ],
-        },
+        additionalDisks: [
+          { sizeGib: 100, storageTier: { name: 'fast' } },
+          { sizeGib: 20, storageTier: { name: 'capacity' } },
+        ],
       },
     } as unknown as ComputeInstance;
 

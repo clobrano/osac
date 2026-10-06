@@ -12,7 +12,7 @@ interface VmStorageCardProps {
 
 const VmStorageCard = ({ vm }: VmStorageCardProps) => {
   const { t } = useTranslation();
-  const storageRows = getVmStorageRows(t, vm.spec?.bootDisk, vm.spec?.additionalDisks?.items);
+  const storageRows = getVmStorageRows(t, vm.spec?.bootDisk, vm.spec?.additionalDisks);
 
   return (
     <Card isFullHeight>
