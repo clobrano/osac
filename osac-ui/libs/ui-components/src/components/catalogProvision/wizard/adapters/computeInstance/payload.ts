@@ -102,7 +102,7 @@ export const buildComputeInstanceCreatePayload = (
     getCatalogFieldOverlay('spec.additional_disks', readCatalogFieldDefinitions(catalogItem), '')
       .defaultValue !== undefined;
   if (additionalDisks.length > 0 || hasAdditionalDisksDefault) {
-    spec.additionalDisks = { items: additionalDisks };
+    spec.additionalDisks = additionalDisks;
   }
 
   return {
