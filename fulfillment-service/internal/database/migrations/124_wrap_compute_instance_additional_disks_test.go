@@ -34,7 +34,7 @@ var _ = DescribeMigration("Wrap ComputeInstance additional disks", func() {
 			values ('archived-ci', 'archived-ci', 'system', now(), now(), $1::jsonb)`, activeData)
 		Expect(err).ToNot(HaveOccurred())
 
-		Expect(tool.Migrate(ctx, 123)).To(Succeed())
+		Expect(tool.Migrate(ctx, 124)).To(Succeed())
 
 		for _, table := range []string{"compute_instances", "archived_compute_instances"} {
 			var data []byte
@@ -105,7 +105,7 @@ var _ = DescribeMigration("Wrap ComputeInstance additional disks", func() {
 			}
 		}
 
-		Expect(tool.Migrate(ctx, 123)).To(Succeed())
+		Expect(tool.Migrate(ctx, 124)).To(Succeed())
 		assertFixtures()
 	})
 })
