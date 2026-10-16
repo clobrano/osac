@@ -204,7 +204,7 @@ var _ = Describe("buildSpec", func() {
 						Template:     &privatev1.ComputeInstanceTemplateReference{Name: template},
 						InstanceType: &privatev1.InstanceTypeReference{Name: "standard-4-8"},
 						RunStrategy:  privatev1.ComputeInstanceRunStrategy_COMPUTE_INSTANCE_RUN_STRATEGY_ALWAYS.Enum(),
-						SshKey:       privatev1.SecretLocalReference_builder{Id: "test-ssh-key", Name: "login"}.Build(),
+						SshKey:       privatev1.SecretReference_builder{Id: "test-ssh-key", Name: "login"}.Build(),
 						DiskImage:    &privatev1.DiskImageReference{Id: "test-disk-image"},
 						BootDisk: privatev1.ComputeInstanceDisk_builder{
 							SizeGib:     proto.Int32(20),
@@ -559,7 +559,7 @@ var _ = Describe("registered SSH key resolution", func() {
 			computeInstance: privatev1.ComputeInstance_builder{
 				Spec: privatev1.ComputeInstanceSpec_builder{
 					InstanceType: privatev1.InstanceTypeReference_builder{Id: "type-id"}.Build(),
-					SshKey:       privatev1.SecretLocalReference_builder{Id: "key-id", Name: "login"}.Build(),
+					SshKey:       privatev1.SecretReference_builder{Id: "key-id", Name: "login"}.Build(),
 				}.Build(),
 			}.Build(),
 		}

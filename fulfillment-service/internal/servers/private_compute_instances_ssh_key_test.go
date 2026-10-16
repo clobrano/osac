@@ -31,7 +31,7 @@ var _ = Describe("ComputeInstance SSH key reference", func() {
 	current := func() *privatev1.ComputeInstance {
 		return privatev1.ComputeInstance_builder{
 			Spec: privatev1.ComputeInstanceSpec_builder{
-				SshKey: privatev1.SecretLocalReference_builder{Id: "key-a", Name: "first"}.Build(),
+				SshKey: privatev1.SecretReference_builder{Id: "key-a", Name: "first", Project: "apps"}.Build(),
 			}.Build(),
 		}.Build()
 	}
@@ -39,7 +39,7 @@ var _ = Describe("ComputeInstance SSH key reference", func() {
 	It("rejects changing an existing reference", func() {
 		candidate := privatev1.ComputeInstance_builder{
 			Spec: privatev1.ComputeInstanceSpec_builder{
-				SshKey: privatev1.SecretLocalReference_builder{Id: "key-b", Name: "second"}.Build(),
+				SshKey: privatev1.SecretReference_builder{Id: "key-b", Name: "second"}.Build(),
 			}.Build(),
 		}.Build()
 
@@ -51,7 +51,7 @@ var _ = Describe("ComputeInstance SSH key reference", func() {
 	It("accepts an existing reference supplied by ID and restores its canonical form", func() {
 		candidate := privatev1.ComputeInstance_builder{
 			Spec: privatev1.ComputeInstanceSpec_builder{
-				SshKey: privatev1.SecretLocalReference_builder{Id: "key-a"}.Build(),
+				SshKey: privatev1.SecretReference_builder{Id: "key-a", Project: "apps"}.Build(),
 			}.Build(),
 		}.Build()
 
@@ -59,12 +59,25 @@ var _ = Describe("ComputeInstance SSH key reference", func() {
 		Expect(err).ToNot(HaveOccurred())
 		Expect(candidate.GetSpec().GetSshKey().GetId()).To(Equal("key-a"))
 		Expect(candidate.GetSpec().GetSshKey().GetName()).To(Equal("first"))
+		Expect(candidate.GetSpec().GetSshKey().GetProject()).To(Equal("apps"))
+	})
+
+	It("rejects an existing named-project reference when its project is omitted", func() {
+		candidate := privatev1.ComputeInstance_builder{
+			Spec: privatev1.ComputeInstanceSpec_builder{
+				SshKey: privatev1.SecretReference_builder{Id: "key-a"}.Build(),
+			}.Build(),
+		}.Build()
+
+		err := validateComputeInstanceImmutability(current(), candidate, &fieldmaskpb.FieldMask{Paths: []string{"spec.ssh_key"}})
+		Expect(status.Code(err)).To(Equal(codes.InvalidArgument))
+		Expect(status.Convert(err).Message()).To(ContainSubstring("ssh_key is immutable"))
 	})
 
 	It("accepts an existing reference supplied by name and restores its canonical form", func() {
 		candidate := privatev1.ComputeInstance_builder{
 			Spec: privatev1.ComputeInstanceSpec_builder{
-				SshKey: privatev1.SecretLocalReference_builder{Name: "first"}.Build(),
+				SshKey: privatev1.SecretReference_builder{Name: "first", Project: "apps"}.Build(),
 			}.Build(),
 		}.Build()
 
@@ -72,6 +85,7 @@ var _ = Describe("ComputeInstance SSH key reference", func() {
 		Expect(err).ToNot(HaveOccurred())
 		Expect(candidate.GetSpec().GetSshKey().GetId()).To(Equal("key-a"))
 		Expect(candidate.GetSpec().GetSshKey().GetName()).To(Equal("first"))
+		Expect(candidate.GetSpec().GetSshKey().GetProject()).To(Equal("apps"))
 	})
 })
 
@@ -100,7 +114,7 @@ var _ = Describe("ComputeInstance SSH key validation", func() {
 
 		instance := privatev1.ComputeInstance_builder{
 			Metadata: privatev1.Metadata_builder{Tenant: testTenant}.Build(),
-			Spec:     privatev1.ComputeInstanceSpec_builder{SshKey: privatev1.SecretLocalReference_builder{Name: "login"}.Build()}.Build(),
+			Spec:     privatev1.ComputeInstanceSpec_builder{SshKey: privatev1.SecretReference_builder{Name: "login"}.Build()}.Build(),
 		}.Build()
 		Expect(server.validateSshPublicKey(ctx, instance, nil)).ToNot(HaveOccurred())
 		Expect(instance.GetSpec().GetSshKey().GetId()).To(Equal("compute-key"))
@@ -137,7 +151,7 @@ var _ = Describe("ComputeInstance SSH key validation", func() {
 		instance := privatev1.ComputeInstance_builder{
 			Metadata: privatev1.Metadata_builder{Tenant: testTenant}.Build(),
 			Spec: privatev1.ComputeInstanceSpec_builder{
-				SshKey: privatev1.SecretLocalReference_builder{Id: "vault-compute-key"}.Build(),
+				SshKey: privatev1.SecretReference_builder{Id: "vault-compute-key"}.Build(),
 			}.Build(),
 		}.Build()
 		Expect(server.validateSshPublicKey(ctx, instance, nil)).ToNot(HaveOccurred())
@@ -174,7 +188,7 @@ var _ = Describe("ComputeInstance SSH key validation", func() {
 		instance := privatev1.ComputeInstance_builder{
 			Metadata: privatev1.Metadata_builder{Tenant: testTenant}.Build(),
 			Spec: privatev1.ComputeInstanceSpec_builder{
-				SshKey: privatev1.SecretLocalReference_builder{Id: "unavailable-vault-key"}.Build(),
+				SshKey: privatev1.SecretReference_builder{Id: "unavailable-vault-key"}.Build(),
 			}.Build(),
 		}.Build()
 		err = server.validateSshPublicKey(ctx, instance, nil)
@@ -206,7 +220,7 @@ var _ = Describe("ComputeInstance SSH key validation", func() {
 		instance := privatev1.ComputeInstance_builder{
 			Metadata: privatev1.Metadata_builder{Tenant: testTenant}.Build(),
 			Spec: privatev1.ComputeInstanceSpec_builder{
-				SshKey: privatev1.SecretLocalReference_builder{Id: "unconfigured-vault-key"}.Build(),
+				SshKey: privatev1.SecretReference_builder{Id: "unconfigured-vault-key"}.Build(),
 			}.Build(),
 		}.Build()
 		// Validation returns Internal because no SecretStore is configured to fetch the key.
@@ -234,7 +248,7 @@ var _ = Describe("ComputeInstance SSH key validation", func() {
 		instance := privatev1.ComputeInstance_builder{
 			Metadata: privatev1.Metadata_builder{Tenant: testTenant}.Build(),
 			Spec: privatev1.ComputeInstanceSpec_builder{
-				SshKey: privatev1.SecretLocalReference_builder{Id: "opaque-secret"}.Build(),
+				SshKey: privatev1.SecretReference_builder{Id: "opaque-secret"}.Build(),
 			}.Build(),
 		}.Build()
 		err = server.validateSshPublicKey(ctx, instance, nil)
@@ -261,7 +275,7 @@ var _ = Describe("ComputeInstance SSH key validation", func() {
 		instance := privatev1.ComputeInstance_builder{
 			Metadata: privatev1.Metadata_builder{Tenant: testTenant}.Build(),
 			Spec: privatev1.ComputeInstanceSpec_builder{
-				SshKey: privatev1.SecretLocalReference_builder{Id: "missing-public-key"}.Build(),
+				SshKey: privatev1.SecretReference_builder{Id: "missing-public-key"}.Build(),
 			}.Build(),
 		}.Build()
 		err = server.validateSshPublicKey(ctx, instance, nil)
@@ -296,7 +310,7 @@ var _ = Describe("ComputeInstance SSH key validation", func() {
 		instance := privatev1.ComputeInstance_builder{
 			Metadata: privatev1.Metadata_builder{Tenant: testTenant}.Build(),
 			Spec: privatev1.ComputeInstanceSpec_builder{
-				SshKey:    privatev1.SecretLocalReference_builder{Id: "windows-key"}.Build(),
+				SshKey:    privatev1.SecretReference_builder{Id: "windows-key"}.Build(),
 				DiskImage: privatev1.DiskImageReference_builder{Id: "windows-image"}.Build(),
 			}.Build(),
 		}.Build()
@@ -317,7 +331,7 @@ var _ = Describe("ComputeInstance SSH key validation", func() {
 
 		instance := privatev1.ComputeInstance_builder{
 			Metadata: privatev1.Metadata_builder{Tenant: testTenant}.Build(),
-			Spec:     privatev1.ComputeInstanceSpec_builder{SshKey: privatev1.SecretLocalReference_builder{}.Build()}.Build(),
+			Spec:     privatev1.ComputeInstanceSpec_builder{SshKey: privatev1.SecretReference_builder{}.Build()}.Build(),
 		}.Build()
 		err = server.validateSshPublicKey(ctx, instance, nil)
 		Expect(status.Code(err)).To(Equal(codes.InvalidArgument))
