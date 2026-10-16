@@ -190,6 +190,23 @@ var _ = Describe("Private secrets server", func() {
 				privatev1.SecretBackend_SECRET_BACKEND_VAULT))
 		})
 
+		It("rejects invalid SSH public-key Secret data before storing it", func() {
+			const name = "invalid-ssh-key"
+			_, err := server.Create(ctx, privatev1.SecretsCreateRequest_builder{
+				Object: privatev1.Secret_builder{
+					Metadata: privatev1.Metadata_builder{Name: name}.Build(),
+					Type:     privatev1.SecretType_SECRET_TYPE_SSH_PUBLIC_KEY,
+					Data:     map[string][]byte{"public_key": []byte("not-an-ssh-key")},
+				}.Build(),
+			}.Build())
+			Expect(status.Code(err)).To(Equal(codes.InvalidArgument))
+
+			filter := "this.metadata.name == '" + name + "'"
+			stored, err := server.List(ctx, privatev1.SecretsListRequest_builder{Filter: &filter}.Build())
+			Expect(err).ToNot(HaveOccurred())
+			Expect(stored.GetItems()).To(BeEmpty())
+		})
+
 		It("Defaults unspecified backend to Vault", func() {
 			created := createVaultSecret()
 			Expect(created.GetBackend()).To(Equal(
