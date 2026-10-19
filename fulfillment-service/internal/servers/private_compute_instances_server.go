@@ -865,63 +865,27 @@ func (s *PrivateComputeInstancesServer) validateSshPublicKey(
 	if ref == nil {
 		return nil
 	}
-	if err := validateTenantScopedSSHKeyReference(ref); err != nil {
-		return err
-	}
 	metadata := ci.GetMetadata()
 	if metadata == nil {
 		return grpcstatus.Error(grpccodes.InvalidArgument, "cannot resolve ssh key reference without instance metadata")
 	}
 
-	secret, err := resolveResourceInScope(
+	resolved, err := resolveTenantScopedSSHKey(
 		ctx,
+		s.logger,
 		s.secretsDao,
-		referenceScope{tenant: metadata.GetTenant(), project: ref.GetProject()},
-		ref.GetId(),
-		ref.GetName(),
-		"secret",
-		"",
-		grpccodes.NotFound,
+		s.secretStore,
+		metadata.GetTenant(),
+		ref,
+		"ssh_key",
 	)
 	if err != nil {
-		return normalizeSSHKeyReferenceLookupError(err, computeInstanceSSHKeyInvalidScopeMessage)
-	}
-
-	if err := validateResolvedSecretLifecycleAndType(
-		secret,
-		refKey(ref),
-		"ssh_key",
-		privatev1.SecretType_SECRET_TYPE_SSH_PUBLIC_KEY,
-	); err != nil {
+		if grpcstatus.Code(err) == grpccodes.NotFound {
+			return grpcstatus.Error(grpccodes.NotFound, sshKeyReferenceNotFoundMessage)
+		}
 		return err
 	}
-	data := secret.GetData()
-	if len(data) == 0 && secret.GetBackend() == privatev1.SecretBackend_SECRET_BACKEND_VAULT {
-		if s.secretStore == nil {
-			s.logger.ErrorContext(ctx, "Failed to load SSH key Secret: secret store isn't configured")
-			return grpcstatus.Errorf(grpccodes.Internal, "failed to resolve ssh key reference")
-		}
-		secretMetadata := secret.GetMetadata()
-		data, err = s.secretStore.Fetch(
-			ctx,
-			secretMetadata.GetTenant(),
-			secretMetadata.GetProject(),
-			secretMetadata.GetName(),
-		)
-		if err != nil {
-			s.logger.ErrorContext(ctx, "Failed to load SSH key Secret from store", "error", err)
-			return grpcstatus.Errorf(grpccodes.Internal, "failed to resolve ssh key reference")
-		}
-	}
-	if len(data["public_key"]) == 0 {
-		return grpcstatus.Errorf(
-			grpccodes.InvalidArgument,
-			"secret '%s' referenced by ssh_key must contain a non-empty 'public_key' entry",
-			refKey(ref),
-		)
-	}
-
-	spec.SetSshKey(canonicalSSHKeySecretReference(secret))
+	spec.SetSshKey(resolved.reference)
 
 	if diskImage != nil && diskImage.GetSpec().GetGuestOsFamily() == privatev1.GuestOSFamily_GUEST_OS_FAMILY_WINDOWS {
 		return grpcstatus.Error(grpccodes.InvalidArgument, "SSH key injection is not supported for Windows instances")

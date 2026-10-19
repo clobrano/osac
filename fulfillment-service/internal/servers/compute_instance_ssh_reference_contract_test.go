@@ -28,8 +28,6 @@ import (
 	"google.golang.org/protobuf/types/known/fieldmaskpb"
 )
 
-const invalidComputeInstanceSSHKeyScopeMessage = "SSH key reference is invalid for the ComputeInstance tenant/project scope."
-
 func seedSSHReferenceTestProject(name string) error {
 	projects, err := dao.NewGenericDAO[*privatev1.Project]().SetLogger(logger).SetTenancyLogic(tenancy).Build()
 	if err != nil {
@@ -69,13 +67,13 @@ var _ = Describe("ComputeInstance SSH reference scope", func() {
 				Id:       "scoped-ssh-apps-key",
 				Metadata: privatev1.Metadata_builder{Name: "scoped-login", Tenant: testTenant, Project: "apps"}.Build(),
 				Type:     privatev1.SecretType_SECRET_TYPE_SSH_PUBLIC_KEY,
-				Data:     map[string][]byte{"public_key": []byte("ssh-ed25519 AAAA apps")},
+				Data:     map[string][]byte{"public_key": []byte(testSSHPublicKey)},
 			}.Build(),
 			privatev1.Secret_builder{
 				Id:       "scoped-ssh-ops-key",
 				Metadata: privatev1.Metadata_builder{Name: "scoped-login", Tenant: testTenant, Project: "ops"}.Build(),
 				Type:     privatev1.SecretType_SECRET_TYPE_SSH_PUBLIC_KEY,
-				Data:     map[string][]byte{"public_key": []byte("ssh-ed25519 AAAA ops")},
+				Data:     map[string][]byte{"public_key": []byte(testSSHPublicKey)},
 			}.Build(),
 		} {
 			_, err = server.secretsDao.Create().SetObject(secret).Do(ctx)
@@ -121,7 +119,7 @@ var _ = Describe("ComputeInstance SSH reference scope", func() {
 			Id:       "scope-error-key",
 			Metadata: privatev1.Metadata_builder{Name: "scope-error-key", Tenant: testTenant, Project: "apps"}.Build(),
 			Type:     privatev1.SecretType_SECRET_TYPE_SSH_PUBLIC_KEY,
-			Data:     map[string][]byte{"public_key": []byte("ssh-ed25519 AAAA scope-error")},
+			Data:     map[string][]byte{"public_key": []byte(testSSHPublicKey)},
 		}.Build()).Do(ctx)
 		Expect(err).NotTo(HaveOccurred())
 
@@ -135,8 +133,8 @@ var _ = Describe("ComputeInstance SSH reference scope", func() {
 			instance, err := computeInstanceWithSSHKey(testTenant, reference)
 			Expect(err).NotTo(HaveOccurred())
 			err = server.validateSshPublicKey(ctx, instance, nil)
-			Expect(status.Code(err)).To(Equal(codes.InvalidArgument))
-			Expect(status.Convert(err).Message()).To(Equal(invalidComputeInstanceSSHKeyScopeMessage))
+			Expect(status.Code(err)).To(Equal(codes.NotFound))
+			Expect(status.Convert(err).Message()).To(Equal(sshKeyReferenceNotFoundMessage))
 		}
 	})
 
