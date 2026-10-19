@@ -90,6 +90,70 @@ var _ = Describe("ComputeInstance SSH key reference", func() {
 })
 
 var _ = Describe("ComputeInstance SSH key validation", func() {
+	It("returns the canonical reference and key data for reuse by another handler", func() {
+		server, err := NewPrivateComputeInstancesServer().
+			SetLogger(logger).
+			SetAttributionLogic(attribution).
+			SetTenancyLogic(tenancy).
+			Build()
+		Expect(err).ToNot(HaveOccurred())
+
+		publicKey := []byte(testSSHPublicKey)
+		_, err = server.secretsDao.Create().SetObject(privatev1.Secret_builder{
+			Id: "reusable-key",
+			Metadata: privatev1.Metadata_builder{
+				Name:   "reusable",
+				Tenant: testTenant,
+			}.Build(),
+			Type: privatev1.SecretType_SECRET_TYPE_SSH_PUBLIC_KEY,
+			Data: map[string][]byte{"public_key": publicKey},
+		}.Build()).Do(ctx)
+		Expect(err).ToNot(HaveOccurred())
+
+		resolved, err := resolveTenantScopedSSHKey(
+			ctx,
+			logger,
+			server.secretsDao,
+			nil,
+			testTenant,
+			privatev1.SecretReference_builder{Name: "reusable"}.Build(),
+			"ssh_key",
+		)
+		Expect(err).ToNot(HaveOccurred())
+		Expect(resolved.reference.GetId()).To(Equal("reusable-key"))
+		Expect(resolved.reference.GetName()).To(Equal("reusable"))
+		Expect(resolved.publicKey).To(Equal(publicKey))
+	})
+
+	It("rejects SSH key data with invalid OpenSSH syntax", func() {
+		server, err := NewPrivateComputeInstancesServer().
+			SetLogger(logger).
+			SetAttributionLogic(attribution).
+			SetTenancyLogic(tenancy).
+			Build()
+		Expect(err).ToNot(HaveOccurred())
+
+		_, err = server.secretsDao.Create().SetObject(privatev1.Secret_builder{
+			Id:       "invalid-key",
+			Metadata: privatev1.Metadata_builder{Name: "invalid-key", Tenant: testTenant}.Build(),
+			Type:     privatev1.SecretType_SECRET_TYPE_SSH_PUBLIC_KEY,
+			Data:     map[string][]byte{"public_key": []byte("not-an-ssh-key")},
+		}.Build()).Do(ctx)
+		Expect(err).ToNot(HaveOccurred())
+
+		_, err = resolveTenantScopedSSHKey(
+			ctx,
+			logger,
+			server.secretsDao,
+			nil,
+			testTenant,
+			privatev1.SecretReference_builder{Id: "invalid-key"}.Build(),
+			"ssh_key",
+		)
+		Expect(status.Code(err)).To(Equal(codes.InvalidArgument))
+		Expect(status.Convert(err).Message()).To(ContainSubstring("invalid SSH public key"))
+	})
+
 	It("canonicalizes a tenant-scoped Secret reference by name", func() {
 		mockStore := vault.NewMockSecretStore(ctrl)
 		server, err := NewPrivateComputeInstancesServer().
@@ -108,7 +172,7 @@ var _ = Describe("ComputeInstance SSH key validation", func() {
 			}.Build(),
 			Type: privatev1.SecretType_SECRET_TYPE_SSH_PUBLIC_KEY,
 			// This Secret already has a public_key, so validation can use it directly.
-			Data: map[string][]byte{"public_key": []byte("ssh-ed25519 AAAA login")},
+			Data: map[string][]byte{"public_key": []byte(testSSHPublicKey)},
 		}.Build()).Do(ctx)
 		Expect(err).ToNot(HaveOccurred())
 
@@ -121,7 +185,7 @@ var _ = Describe("ComputeInstance SSH key validation", func() {
 		Expect(instance.GetSpec().GetSshKey().GetName()).To(Equal("login"))
 	})
 
-	It("loads Vault-backed SSH key data before validating it", func() {
+	It("returns public key data from Vault-backed SSH keys", func() {
 		mockStore := vault.NewMockSecretStore(ctrl)
 		server, err := NewPrivateComputeInstancesServer().
 			SetLogger(logger).
@@ -146,16 +210,20 @@ var _ = Describe("ComputeInstance SSH key validation", func() {
 		fetch := mockStore.EXPECT().
 			Fetch(gomock.Any(), testTenant, "", "vault-login")
 		// The mock Vault returns a public_key, so validation succeeds.
-		fetch.Return(map[string][]byte{"public_key": []byte("ssh-ed25519 AAAA vault-login")}, nil)
+		fetch.Return(map[string][]byte{"public_key": []byte(testSSHPublicKey)}, nil)
 
-		instance := privatev1.ComputeInstance_builder{
-			Metadata: privatev1.Metadata_builder{Tenant: testTenant}.Build(),
-			Spec: privatev1.ComputeInstanceSpec_builder{
-				SshKey: privatev1.SecretReference_builder{Id: "vault-compute-key"}.Build(),
-			}.Build(),
-		}.Build()
-		Expect(server.validateSshPublicKey(ctx, instance, nil)).ToNot(HaveOccurred())
-		Expect(instance.GetSpec().GetSshKey().GetId()).To(Equal("vault-compute-key"))
+		resolved, err := resolveTenantScopedSSHKey(
+			ctx,
+			logger,
+			server.secretsDao,
+			mockStore,
+			testTenant,
+			privatev1.SecretReference_builder{Id: "vault-compute-key"}.Build(),
+			"ssh_key",
+		)
+		Expect(err).ToNot(HaveOccurred())
+		Expect(resolved.reference.GetId()).To(Equal("vault-compute-key"))
+		Expect(resolved.publicKey).To(Equal([]byte(testSSHPublicKey)))
 	})
 
 	It("returns Internal when Vault-backed SSH key data cannot be fetched", func() {
@@ -295,7 +363,7 @@ var _ = Describe("ComputeInstance SSH key validation", func() {
 			Id:       "windows-key",
 			Metadata: privatev1.Metadata_builder{Name: "windows-login", Tenant: testTenant}.Build(),
 			Type:     privatev1.SecretType_SECRET_TYPE_SSH_PUBLIC_KEY,
-			Data:     map[string][]byte{"public_key": []byte("ssh-ed25519 AAAA windows")},
+			Data:     map[string][]byte{"public_key": []byte(testSSHPublicKey)},
 		}.Build()).Do(ctx)
 		Expect(err).ToNot(HaveOccurred())
 		_, err = server.diskImagesDao.Create().SetObject(privatev1.DiskImage_builder{
