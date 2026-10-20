@@ -214,8 +214,20 @@ func (s *PrivateSecretsServer) Create(ctx context.Context,
 		secret.SetData(nil)
 	}
 
+	prepareCandidate := func(candidateCtx context.Context, _ *privatev1.Secret, candidate *privatev1.Secret) error {
+		if candidate.GetMetadata().GetTenant() != auth.SharedTenant ||
+			candidate.GetType() != privatev1.SecretType_SECRET_TYPE_SSH_PUBLIC_KEY {
+			return nil
+		}
+		if authErr := s.authorizePlatformSecretManagement(candidateCtx, candidate); authErr != nil {
+			return authErr
+		}
+		return grpcstatus.Errorf(grpccodes.InvalidArgument,
+			"SSH public-key Secrets cannot be created in the shared tenant")
+	}
+
 	create := func(opCtx context.Context) error {
-		if createErr := s.generic.Create(opCtx, request, &response); createErr != nil {
+		if createErr := s.generic.CreateWithCandidatePreparation(opCtx, request, &response, prepareCandidate); createErr != nil {
 			return createErr
 		}
 		created := response.GetObject()
