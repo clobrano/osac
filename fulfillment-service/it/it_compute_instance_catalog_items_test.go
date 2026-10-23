@@ -692,9 +692,10 @@ var _ = Describe("Compute Instance Catalog Items", Label("catalog-items"), func(
 			}
 
 			By("creating and reading project-aware policy values through REST")
-			project := createCatalogItemProjectFixture(ctx, usersGroup)
+			userConn := computeInstanceSSHKeyProjectUserConn(ctx, userUsername)
+			projectAdminConn := computeInstanceSSHKeyProjectAdminConn(ctx)
+			project := createComputeInstanceSSHKeyProjectFixture(ctx, usersGroup, projectAdminConn)
 			grantComputeInstanceSSHKeyProjectAccess(ctx, usersGroup, project)
-			userConn := computeInstanceSSHKeyProjectUserConn(ctx)
 			secret := createComputeInstanceSSHKeySecretFixture(ctx, usersGroup, project, catalogItemFixtureName())
 			template := createCatalogItemComputeInstanceProvisioningTemplateFixture(ctx, nil)
 			network := createCatalogItemNetworkFixture(ctx, usersGroup, "")

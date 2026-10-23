@@ -28,8 +28,6 @@ import (
 	"google.golang.org/protobuf/types/known/fieldmaskpb"
 )
 
-const invalidComputeInstanceSSHKeyScopeMessage = "SSH key reference is invalid for the ComputeInstance tenant/project scope."
-
 func seedSSHReferenceTestProject(name string) error {
 	projects, err := dao.NewGenericDAO[*privatev1.Project]().SetLogger(logger).SetTenancyLogic(tenancy).Build()
 	if err != nil {
@@ -135,8 +133,8 @@ var _ = Describe("ComputeInstance SSH reference scope", func() {
 			instance, err := computeInstanceWithSSHKey(testTenant, reference)
 			Expect(err).NotTo(HaveOccurred())
 			err = server.validateSshPublicKey(ctx, instance, nil)
-			Expect(status.Code(err)).To(Equal(codes.InvalidArgument))
-			Expect(status.Convert(err).Message()).To(Equal(invalidComputeInstanceSSHKeyScopeMessage))
+			Expect(status.Code(err)).To(Equal(codes.NotFound))
+			Expect(status.Convert(err).Message()).To(Equal(sshKeyReferenceNotFoundMessage))
 		}
 	})
 

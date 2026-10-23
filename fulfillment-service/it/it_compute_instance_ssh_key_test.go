@@ -56,6 +56,34 @@ func createComputeInstanceSSHKeySecretFixture(
 	return secret
 }
 
+func createComputeInstanceSSHKeyProjectFixture(ctx context.Context, tenant string, conn *grpc.ClientConn) string {
+	GinkgoHelper()
+	client := publicv1.NewProjectsClient(conn)
+	name := catalogItemFixtureName()
+	result, err := client.Create(ctx, publicv1.ProjectsCreateRequest_builder{
+		Object: publicv1.Project_builder{
+			Metadata: publicv1.Metadata_builder{Name: name, Tenant: tenant}.Build(),
+		}.Build(),
+	}.Build())
+	Expect(err).NotTo(HaveOccurred())
+	id := result.GetObject().GetId()
+	cleanupClient := privatev1.NewProjectsClient(tool.InternalView().AdminConn())
+	deferCatalogItemFixtureDeletion(func(ctx context.Context) error {
+		_, err := cleanupClient.Delete(ctx, privatev1.ProjectsDeleteRequest_builder{Id: id}.Build())
+		return err
+	}, nil)
+	Eventually(func(g Gomega) {
+		response, err := client.Get(ctx, publicv1.ProjectsGetRequest_builder{Id: id}.Build())
+		g.Expect(err).NotTo(HaveOccurred())
+		if err != nil || response == nil || response.GetObject() == nil {
+			return
+		}
+		g.Expect(response.GetObject().GetStatus().GetState()).To(Equal(publicv1.ProjectState_PROJECT_STATE_ACTIVE),
+			response.GetObject().GetStatus().GetMessage())
+	}, 2*time.Minute, time.Second).Should(Succeed())
+	return name
+}
+
 func grantComputeInstanceSSHKeyProjectAccess(ctx context.Context, tenant, project string) {
 	GinkgoHelper()
 
@@ -122,14 +150,41 @@ func grantComputeInstanceSSHKeyProjectAccess(ctx context.Context, tenant, projec
 	}, 2*time.Minute, time.Second).Should(Succeed())
 }
 
-func computeInstanceSSHKeyProjectUserConn(ctx context.Context) *grpc.ClientConn {
+func computeInstanceSSHKeyProjectUserConn(ctx context.Context, username string) *grpc.ClientConn {
 	GinkgoHelper()
-	tokenSource, err := tool.makeKeycloakTokenSource(ctx, userUsername, usersPassword)
+	tokenSource, err := tool.makeKeycloakTokenSource(ctx, username, usersPassword)
 	Expect(err).NotTo(HaveOccurred())
 	conn, err := tool.makeGrpcConn(externalServiceAddr, tokenSource)
 	Expect(err).NotTo(HaveOccurred())
 	DeferCleanup(func() { Expect(conn.Close()).To(Succeed()) })
 	return conn
+}
+
+func computeInstanceSSHKeyProjectAdminConn(ctx context.Context) *grpc.ClientConn {
+	GinkgoHelper()
+
+	// Provision the dedicated project owner before assigning its tenant-admin role.
+	bootstrapConn := computeInstanceSSHKeyProjectUserConn(ctx, sshKeyProjectOwnerUsername)
+	_, err := publicv1.NewSecretsClient(bootstrapConn).List(ctx, publicv1.SecretsListRequest_builder{}.Build())
+	Expect(err).NotTo(HaveOccurred())
+
+	users := privatev1.NewUsersClient(tool.InternalView().AdminConn())
+	filter := "this.metadata.name == '" + sshKeyProjectOwnerUsername + "' && this.metadata.tenant == '" + usersGroup + "'"
+	response, err := users.List(ctx, privatev1.UsersListRequest_builder{Filter: &filter}.Build())
+	Expect(err).NotTo(HaveOccurred())
+	Expect(response.GetItems()).To(HaveLen(1))
+	userID := response.GetItems()[0].GetId()
+	var keycloakUserID string
+	Eventually(func(g Gomega) {
+		userResponse, getErr := users.Get(ctx, privatev1.UsersGetRequest_builder{Id: userID}.Build())
+		g.Expect(getErr).NotTo(HaveOccurred())
+		keycloakUserID = userResponse.GetObject().GetStatus().GetKeycloakUserId()
+		g.Expect(keycloakUserID).NotTo(BeEmpty())
+	}, 2*time.Minute, time.Second).Should(Succeed())
+	grantTenantAdminRealmRole(ctx, keycloakUserID)
+
+	// Mint a fresh token after the realm role is assigned.
+	return computeInstanceSSHKeyProjectUserConn(ctx, sshKeyProjectOwnerUsername)
 }
 
 func runComputeInstanceSSHKeyCLI(ctx context.Context, home string, args ...string) (string, string, int) {
@@ -152,11 +207,12 @@ func loginComputeInstanceSSHKeyCLI(ctx context.Context, home string) (string, st
 
 var _ = Describe("ComputeInstance SSH key project scope", Label("compute-instances", "ssh-keys"), func() {
 	It("resolves SSH key names and IDs in the selected tenant project", func(ctx context.Context) {
-		apps := createCatalogItemProjectFixture(ctx, usersGroup)
-		ops := createCatalogItemProjectFixture(ctx, usersGroup)
+		userConn := computeInstanceSSHKeyProjectUserConn(ctx, userUsername)
+		projectAdminConn := computeInstanceSSHKeyProjectAdminConn(ctx)
+		apps := createComputeInstanceSSHKeyProjectFixture(ctx, usersGroup, projectAdminConn)
+		ops := createComputeInstanceSSHKeyProjectFixture(ctx, usersGroup, projectAdminConn)
 		grantComputeInstanceSSHKeyProjectAccess(ctx, usersGroup, apps)
 		grantComputeInstanceSSHKeyProjectAccess(ctx, usersGroup, ops)
-		userConn := computeInstanceSSHKeyProjectUserConn(ctx)
 		name := catalogItemFixtureName()
 		appsSecret := createComputeInstanceSSHKeySecretFixture(ctx, usersGroup, apps, name)
 		opsSecret := createComputeInstanceSSHKeySecretFixture(ctx, usersGroup, ops, name)
@@ -258,10 +314,11 @@ var _ = Describe("ComputeInstance SSH key project scope", Label("compute-instanc
 	})
 
 	It("returns the same non-disclosing error when the SSH key Secret is hidden, out of scope, missing, or in a project the user cannot access", func(ctx context.Context) {
-		apps := createCatalogItemProjectFixture(ctx, usersGroup)
-		ops := createCatalogItemProjectFixture(ctx, usersGroup)
+		userConn := computeInstanceSSHKeyProjectUserConn(ctx, userUsername)
+		projectAdminConn := computeInstanceSSHKeyProjectAdminConn(ctx)
+		apps := createComputeInstanceSSHKeyProjectFixture(ctx, usersGroup, projectAdminConn)
 		grantComputeInstanceSSHKeyProjectAccess(ctx, usersGroup, apps)
-		userConn := computeInstanceSSHKeyProjectUserConn(ctx)
+		ops := createComputeInstanceSSHKeyProjectFixture(ctx, usersGroup, projectAdminConn)
 		keyName := catalogItemFixtureName()
 		outOfProject := createComputeInstanceSSHKeySecretFixture(ctx, usersGroup, ops, keyName)
 		network := createCatalogItemNetworkFixture(ctx, usersGroup, "")
@@ -330,7 +387,8 @@ var _ = Describe("ComputeInstance SSH key project scope", Label("compute-instanc
 		home, err := tool.NewCLIHomeDir()
 		Expect(err).NotTo(HaveOccurred())
 		DeferCleanup(func() { Expect(os.RemoveAll(home)).To(Succeed()) })
-		apps := createCatalogItemProjectFixture(ctx, usersGroup)
+		projectAdminConn := computeInstanceSSHKeyProjectAdminConn(ctx)
+		apps := createComputeInstanceSSHKeyProjectFixture(ctx, usersGroup, projectAdminConn)
 		grantComputeInstanceSSHKeyProjectAccess(ctx, usersGroup, apps)
 		_, stderr, code := loginComputeInstanceSSHKeyCLI(ctx, home)
 		Expect(code).To(Equal(0), stderr)
@@ -371,7 +429,8 @@ var _ = Describe("ComputeInstance SSH key project scope", Label("compute-instanc
 		home, err := tool.NewCLIHomeDir()
 		Expect(err).NotTo(HaveOccurred())
 		DeferCleanup(func() { Expect(os.RemoveAll(home)).To(Succeed()) })
-		project := createCatalogItemProjectFixture(ctx, usersGroup)
+		projectAdminConn := computeInstanceSSHKeyProjectAdminConn(ctx)
+		project := createComputeInstanceSSHKeyProjectFixture(ctx, usersGroup, projectAdminConn)
 		grantComputeInstanceSSHKeyProjectAccess(ctx, usersGroup, project)
 		_, stderr, code := loginComputeInstanceSSHKeyCLI(ctx, home)
 		Expect(code).To(Equal(0), stderr)
