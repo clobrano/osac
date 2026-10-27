@@ -124,26 +124,46 @@ var _ = Describe("deployed MCP server", func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 		defer cancel()
 
-		clientID, original, err := getKeycloakClient(ctx, "osac-mcp-client")
+		_, original, err := getKeycloakClient(ctx, "osac-mcp-client")
 		Expect(err).ToNot(HaveOccurred())
 		shortLived, err := cloneJSONMap(original)
 		Expect(err).ToNot(HaveOccurred())
+		testClientName := "mcp-expired-" + uuid.New()
+		delete(shortLived, "id")
+		if protocolMappers, ok := shortLived["protocolMappers"].([]any); ok {
+			for _, value := range protocolMappers {
+				if mapper, ok := value.(map[string]any); ok {
+					delete(mapper, "id")
+				}
+			}
+		}
+		shortLived["clientId"] = testClientName
+		shortLived["name"] = "MCP expired-token integration test"
 		attributes, ok := shortLived["attributes"].(map[string]interface{})
 		if !ok {
 			attributes = make(map[string]interface{})
 			shortLived["attributes"] = attributes
 		}
 		attributes["access.token.lifespan"] = "1"
-		Expect(updateKeycloakClient(ctx, clientID, shortLived)).To(Succeed())
+		code, _, err := tool.KeycloakAdminRequest(ctx, http.MethodPost, "/clients", shortLived)
+		Expect(err).ToNot(HaveOccurred())
+		Expect(code).To(Equal(http.StatusCreated))
 		DeferCleanup(func() {
-			Expect(updateKeycloakClient(context.Background(), clientID, original)).To(Succeed())
+			cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), time.Minute)
+			defer cleanupCancel()
+			testClientID, _, err := getKeycloakClient(cleanupCtx, testClientName)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(deleteKeycloakClient(cleanupCtx, testClientID)).To(Succeed())
 		})
 
 		resourceURL := endpoint + "/"
-		token, err := tool.SimulateMCPLogin(ctx, resourceURL, userUsername, usersPassword)
+		token, err := tool.simulateOIDCLogin(
+			ctx, testClientName, "http://localhost:8091/callback", resourceURL, "", userUsername, usersPassword,
+		)
 		Expect(err).ToNot(HaveOccurred())
 		claims, err := parseJWTClaims(token)
 		Expect(err).ToNot(HaveOccurred())
+		Expect(jwtAudiences(claims)).To(ContainElement(resourceURL))
 		issuedAt, err := claims.GetIssuedAt()
 		Expect(err).ToNot(HaveOccurred())
 		expiresAt, err := claims.GetExpirationTime()
@@ -305,6 +325,32 @@ var _ = Describe("deployed MCP server", func() {
 			g.Expect(err).ToNot(HaveOccurred())
 			g.Expect(pods.Items).To(BeEmpty())
 		}, time.Minute, time.Second).Should(Succeed())
+
+		claims, parseErr := parseJWTClaims(token)
+		issuedAt, iatErr := claims.GetIssuedAt()
+		expiresAt, expErr := claims.GetExpirationTime()
+		switch {
+		case parseErr != nil:
+			logger.WarnContext(ctx, "MCP outage token timing unavailable",
+				"reason", "claims_parse_failed",
+			)
+		case iatErr != nil || expErr != nil:
+			logger.WarnContext(ctx, "MCP outage token timing unavailable",
+				"reason", "invalid_timing_claims",
+			)
+		case issuedAt == nil || expiresAt == nil:
+			logger.WarnContext(ctx, "MCP outage token timing unavailable",
+				"reason", "missing_timing_claims",
+			)
+		default:
+			now := time.Now().UTC()
+			logger.InfoContext(ctx, "MCP outage token timing",
+				"now", now.Format(time.RFC3339Nano),
+				"iat", issuedAt.UTC(), "exp", expiresAt.UTC(),
+				"lifetime_seconds", expiresAt.Sub(issuedAt.Time).Seconds(),
+				"remaining_seconds", expiresAt.Sub(now).Seconds(),
+			)
+		}
 
 		Eventually(func(g Gomega) {
 			_, err = callDeployedMCPTool[mcpserver.CheckConnectionOutput](
